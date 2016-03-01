@@ -60,7 +60,7 @@ API NOTE
 
 FSM DESCRIPTION/DECLARATION API
 ===============================
-* All event handlers are: typedef void(*FSMHandler)(OFSM *fsm); Example: void MyHandler(OFSM *fsm){...};
+* All event handlers are: typedef void(*FSMHandler)(OFSM *fsm); Example: void MyHandler(OFSMState *fsm){...};
 * Initialization handler (when provided) acts as regular event handler in terms of access to fsm_... function and makes the same impact to FSM state;
 * Example of Transition Table declaration (Ex - event X, Sx - state X, Hxy - state X Event Y handler) (in reality all names are much more meaningful):
 OFSMTransition transitionTable1[][1 + E3] = {
@@ -139,7 +139,7 @@ OFSM can be "shaped" in many different ways using configuration switches. NOTE: 
 #define OFSM_CONFIG_EVENT_DATA_TYPE uint8_t                     //Default uint8_t (8 bits). Event data type.
 #define OFSM_CONFIG_TAKE_NEW_TIME_SNAPSHOT_FOR_EACH_GROUP       //Default undefined.
 #define OFSM_CONFIG_SLEEP_MODE SLEEP_MODE_PWR_DOWN              //Default: SLEEP_MODE_PWR_DOWN, see ( <avr/sleep.h> for more options)
-#define OFSM_CONFIG_DEBUG_PRINT_ADD_TIMESTAMP                   //Default undefined. When defined ofsm_debug_print() will preceded debug messages with [<current time in ticks>]<debug message>.
+#define OFSM_CONFIG_DEBUG_PRINT_ADD_TIMESTAMP                   //Default undefined. When defined ofsm_debug_print() it will prefix debug messages with [<current time in ticks>]<debug message>.
 #define OFSM_CONFIG_PC_SIMULATION                               //Default undefined. See PC SIMULATION section for additional info
 #define OFSM_CONFIG_PC_SIMULATION_TICK_MS 1000                  //Default 1000 milliseconds in one tick.
 #define OFSM_CONFIG_PC_SIMULATION_SLEEP_BETWEEN_EVENTS_MS 0     //default 0. Sleep period (in milliseconds) before reading new simulation event. May be helpful in batch processing mode.
@@ -195,7 +195,7 @@ LIMITATIONS
 TODO
 ====
 * Remove group maintenance overhead for single group setups.
-* simulation: use -f <file> command line param to supply event file
+* simulation: use -f <file> command line parameter to supply event file
 * simulation: allow manual heartbeat from event generator
 */
 #ifndef __OFSM_H_
@@ -376,7 +376,6 @@ General defines
 /*ao, bo - 'o' means overflow*/
 #define _OFSM_TIME_A_GT_B(a, ao, b, bo)  (bool)( (ao && (a >  b) ) || ( (a > b)  && !bo) || (!ao && !bo) )
 #define _OFSM_TIME_A_GTE_B(a, ao, b, bo) (bool)( (ao && (a >= b) ) || ( (a >= b) && !bo) || (!ao && !bo) )
-#define _OFSM_GET_TRANSTION(fsm, eventCode) *(fsm->transitionTable + (fsm->currentState * fsm->transitionTableEventCount) + eventCode)
 
 /*Flags*/
 //Common flags
@@ -444,6 +443,8 @@ struct OFSMGroup {
 	volatile uint8_t    currentEventIndex; //queue cell that is being processed by ofsm
 };
 
+#define _OFSM_GET_TRANSTION(fsm, eventCode) *(fsm->transitionTable + (fsm->currentState * fsm->transitionTableEventCount) + eventCode)
+
 /*--------------------------------------
 Implementation
 ----------------------------------------*/
@@ -456,7 +457,7 @@ volatile unsigned long  _ofsmTime;
 #define fsm_prevent_transition(fsm)						(fsm->flags |= _OFSM_FLAG_FSM_PREVENT_TRANSITION)
 #define fsm_set_transition_delay(fsm, delayTicks)		(fsm->wakeupTime = delayTicks)
 #define fsm_set_transition_delay_from_current_time(fsm, d) (fsm->flag |= _OFSM_FLAG_FSM_DELAY_RELATIVE_TO_MOST_CURRENT_TIME, fsm->wakeupTime = delayTicks)
-#define fsm_get_time_till_timeout(fsm)                  TBI: //TBI:
+#define fsm_get_time_left_before_timeout(fsm)           TBI: //TBI:
 #define fsm_set_inifinite_delay(fsm)					(fsm->flags |= _OFSM_FLAG_INFINITE_SLEEP)
 #define fsm_get_private_data(fsm)						(fsm->fsmPrivateInfo)
 #define fsm_get_private_data_cast(fsm, castType)		((castType)fsm->PrivateInfo)
