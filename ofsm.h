@@ -20,8 +20,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 WHAT IT IS
 ==========
 OFSM is a lightweight Finite State Machine macro library to:
-* Encourage to write MCU power efficient sketches;
-* Push toward more efficient code organization by use of interrupts (as much as possible), while keeping interrupt handlers small and fast;
+* Help writing MCU power efficient sketches;
+* Encourage more efficient code organization by use of interrupts (as much as possible), while keeping interrupt handlers small and fast;
 
 GOALS
 =====
@@ -30,9 +30,7 @@ Main goals of this implementation are:
 * Easy of debugging, including debugging on PC before flushing to the MCU;
 * Easy of customization and support of different MCUs;
 * Re-usability of logic and simplicity of scaling up and down;
-* Memory used by internal code should depend on necessity driven by configuration. Thus, reducing memory consumption and prevention of "dead" code;API NOTE
-* API related sections are created to provide with quick (non-bloated with extra words) reference of functionality and application structure.
-  More detailed documentation (when needed) can be found above implementation of concrete function, define etc;
+* Memory used by internal code should depend on necessity and driven by configuration. Thus, reducing memory consumption and prevention of "dead" code;
 
 DESIGN/USAGE NOTES
 ==================
@@ -51,19 +49,19 @@ Important design decisions and usage notes:
 * Event queues are protected from overflow. Thus if events get generated faster than FSMs can process them, the events will be compressed (see ofsm_queue...()) or dropped;
 * The same event handler can be shared between the states of the same FSM, within different FSMs or even FSMs of different groups;
 * FSMs can be shared between different groups.
-* Default hardware specific implementation relies on AVR API (vs. Arduino API) except couple of cases related to Timer and Debug reporting.
+* Default hardware specific implementation relies on AVR API (vs. Arduino API) except couple of cases related to Timer and Serial access.
 * OFSM is driven by time (transition delays) and events (from interrupt handlers) and TIMEOUT event become a very important concept.
-  Therefore, event id 0 is reserved for TIMEOUT/STATE ENTERING event and must be declared for all FSMs;
+  Therefore, event id 0 is reserved for TIMEOUT/STATE ENTERING event and must be declared in all FSMs;
 
 API NOTE
 ========
-* API related sections are created to provide with quick (non-bloated with extra words) reference of functionality and application structure.
- More detailed documentation (when needed) can be found above implementation of concrete function, define etc;
+* API related documentation sections are created to provide with quick reference of functionality and application structure.
+ More detailed documentation (when needed) can be found above implementation/declaration of concrete function, define etc;
 
 FSM DESCRIPTION/DECLARATION API
 ===============================
 * All event handlers are: typedef void(*FSMHandler)(OFSM *fsm); Example: void MyHandler(OFSM *fsm){...};
-* Initialization handler (when provide) acts as regular event handler in terms of access to fsm_... function and makes the same impact to FSM state;
+* Initialization handler (when provided) acts as regular event handler in terms of access to fsm_... function and makes the same impact to FSM state;
 * Example of Transition Table declaration (Ex - event X, Sx - state X, Hxy - state X Event Y handler) (in reality all names are much more meaningful):
 OFSMTransition transitionTable1[][1 + E3] = {
 //timeout,      E1,         E2          E3
@@ -71,15 +69,15 @@ OFSMTransition transitionTable1[][1 + E3] = {
 { { null,S0 }, { H11, S0 }, { null,S0 },{ H11, S1 } },  //S1
 };
 
-Set of preprocessor macros to help user to declare state machine with list amount of effort. These macros include:
-OFSM_DECLARE_FSM(fsmId, transitionTable, transitionTableEventCount, initializationHandler, fsmPrivateDataPtr)
-OFSM_DECLARE_GROUP_SIZE_1(eventQueueSize, fsmId0) //setup group of 1 FSM
-...
-OFSM_DECLARE_GROUP_SIZE_5(eventQueueSize, fsmId0, ....,fsmId4) //setup group of 5 FSMs
-OFSM_DECLARE_1(grpId0) //OFSM with 1 group
-...
-OFSM_DECLARE_5(grpId0,....grpId4) //OFSM with 10 groups
-OFSM_DECLARE_BASIC(transitionTable, transitionTableEventCount, initializationHandler, fsmPrivateDataPtr) //single FSM single Group declaration
+* Set of preprocessor macros to help user to declare state machine with list amount of effort. These macros include:
+    OFSM_DECLARE_FSM(fsmId, transitionTable, transitionTableEventCount, initializationHandler, fsmPrivateDataPtr)
+    OFSM_DECLARE_GROUP_SIZE_1(eventQueueSize, fsmId0) //setup group of 1 FSM
+    ...
+    OFSM_DECLARE_GROUP_SIZE_5(eventQueueSize, fsmId0, ....,fsmId4) //setup group of 5 FSMs
+    OFSM_DECLARE_1(grpId0) //OFSM with 1 group
+    ...
+    OFSM_DECLARE_5(grpId0,....grpId4) //OFSM with 10 groups
+    OFSM_DECLARE_BASIC(transitionTable, transitionTableEventCount, initializationHandler, fsmPrivateDataPtr) //single FSM single Group declaration
 
 IMPORTANT: 
 * ...DECLARE... macros should be called in the global scope.
@@ -88,8 +86,11 @@ Example:
  ...
  ...OFSM_DECLARE...
  void setup() {
-	 OFSM_SETUP(0);
+	 OFSM_SETUP();
 	 ...
+ }
+ void loop() {
+    OFSM_LOOP(); //this call never returns 
  }
  ...
 
@@ -116,73 +117,73 @@ FSM EVENT HANDLERS API
 * fsm_set_transition_delay(OFSM *fsm, unsigned long delayTicks)
 * fsm_set_inifinite_delay(OFSM *fsm)
 * fsm_get_private_data(OFSM *fsm)
-* fsm_get_private_data_cast(OFSM *fsm, castType) // example: MyPrivateStruct_t *data = fsm_get_private_data_cast(fsm, MyPrivateStruct_t*)
-* fsm_get_fsm_ndex(OFSM *fsm) //index of fsm in the group
-* fsm_get_group_index(OFSM *fsm) //index of group in OFSM
+* fsm_get_private_data_cast(OFSM *fsm, castType)                // example: MyPrivateStruct_t *data = fsm_get_private_data_cast(fsm, MyPrivateStruct_t*)
+* fsm_get_fsm_ndex(OFSM *fsm)                                   //index of fsm in the group
+* fsm_get_group_index(OFSM *fsm)                                //index of group in OFSM
 * fsm_get_state(OFSM *fsm)
 * fsm_get_event_code(OFSM *fsm)
 * fsm_get_event_data(OFSM *fsm)
-* fsm_set_next_state(OFSM *fsm, uint8_t nextStateId) //TRY TO AVOID IT! override next step from the handler 
+* fsm_set_next_state(OFSM *fsm, uint8_t nextStateId)            //TRY TO AVOID IT! overrides default transition state from the handler 
 * fsm_queue_group_event(OFSM *fsm, uint8_t eventCode, OFSM_CONFIG_EVENT_DATA_TYPE eventData)
 * ofsm_queue_global_event(uint8_t eventCode, OFSM_CONFIG_EVENT_DATA_TYPE eventData)
-* ofsm_debug_printf(format, ....)	//debug print
+* ofsm_debug_printf(format, ....)	                            //debug print
 
 CONFIGURATION
 =============
 OFSM can be "shaped" in many different ways using configuration switches. NOTE: all configuration switches must be defined before #include <ofsm.h>:
-#define OFSM_CONFIG_DEBUG_LEVEL 3 //Default undefined. Enables debug print functionality
-#define OFSM_CONFIG_DEBUG_LEVEL_OFSM OFSM_CONFIG_DEBUG_LEVEL //Default OFSM_CONFIG_DEBUG_LEVEL. when level 0, all debug prints from OFSM will be disabled.
-#define OFSM_CONFIG_EXTERNAL_SERIAL_INITIALIZATION //Default undefined. if defined no serial initialization will be made, assuming it is initialized elsewhere
-#define OFSM_CONFIG_DEFAULT_STATE_TRANSITION_DELAY //Default 0. Specifies default transition delay, if event handler didn't set one.
-#define OFSM_CONFIG_WAKEUP_TIME_RELATIVE_TO_MOST_CURRENT_TIME //Default undefined. If precision of delay is important define this constant. Otherwise, keep it undefined to achieve better synchronism with other State Machines.
-#define OFSM_CONFIG_EVENT_DATA_TYPE uint8_t //Default uint8_t (8 bits). Event data type.
-#define OFSM_CONFIG_TAKE_NEW_TIME_SNAPSHOT_FOR_EACH_GROUP //Default undefined.
-#define OFSM_CONFIG_SLEEP_MODE SLEEP_MODE_PWR_DOWN //Default: SLEEP_MODE_PWR_DOWN, see ( <avr/sleep.h> for more options)
-#define OFSM_CONFIG_DEBUG_PRINT_ADD_TIMESTAMP //Default undefined. When defined ofsm_debug_print() will preceded debug messages with [<current time in ticks>]<debug message>.
-#define OFSM_CONFIG_PC_SIMULATION //Default undefined. See PC SIMULATION section for additional info
-#define OFSM_CONFIG_PC_SIMULATION_TICK_MS 1000 //Default 1000 milliseconds in one tick.
-#define OFSM_CONFIG_PC_SIMULATION_SLEEP_BETWEEN_EVENTS_MS 0 //default 0. Sleep period (in milliseconds) before reading new simulation event. May be helpful in batch processing mode.
-#define OFSM_CONFIG_ATOMIC_BLOCK ATOMIC_BLOCK //Default: ATOMIC_BLOCK; Retail compatibility with original: see implementation details in <util/atomic.h> from AVR SDK.
-#define OFSM_CONFIG_ATOMIC_RESTORESTATE ATOMIC_RESTORESTATE //Default: ATOMIC_RESTORESTATE see <util/atomic.h>
+#define OFSM_CONFIG_DEBUG_LEVEL 3                               //Default undefined. Enables debug print functionality
+#define OFSM_CONFIG_DEBUG_LEVEL_OFSM OFSM_CONFIG_DEBUG_LEVEL    //Default OFSM_CONFIG_DEBUG_LEVEL. when level 0, all debug prints from OFSM will be disabled.
+#define OFSM_CONFIG_EXTERNAL_SERIAL_INITIALIZATION              //Default undefined. if defined no serial initialization will be made, assuming it is initialized elsewhere
+#define OFSM_CONFIG_DEFAULT_STATE_TRANSITION_DELAY              //Default 0. Specifies default transition delay, if event handler didn't set one.
+#define OFSM_CONFIG_WAKEUP_TIME_RELATIVE_TO_MOST_CURRENT_TIME   //Default undefined. If precision of delay is important define this constant. Otherwise, keep it undefined to achieve better synchronism with other State Machines.
+#define OFSM_CONFIG_EVENT_DATA_TYPE uint8_t                     //Default uint8_t (8 bits). Event data type.
+#define OFSM_CONFIG_TAKE_NEW_TIME_SNAPSHOT_FOR_EACH_GROUP       //Default undefined.
+#define OFSM_CONFIG_SLEEP_MODE SLEEP_MODE_PWR_DOWN              //Default: SLEEP_MODE_PWR_DOWN, see ( <avr/sleep.h> for more options)
+#define OFSM_CONFIG_DEBUG_PRINT_ADD_TIMESTAMP                   //Default undefined. When defined ofsm_debug_print() will preceded debug messages with [<current time in ticks>]<debug message>.
+#define OFSM_CONFIG_PC_SIMULATION                               //Default undefined. See PC SIMULATION section for additional info
+#define OFSM_CONFIG_PC_SIMULATION_TICK_MS 1000                  //Default 1000 milliseconds in one tick.
+#define OFSM_CONFIG_PC_SIMULATION_SLEEP_BETWEEN_EVENTS_MS 0     //default 0. Sleep period (in milliseconds) before reading new simulation event. May be helpful in batch processing mode.
+#define OFSM_CONFIG_ATOMIC_BLOCK ATOMIC_BLOCK                   //Default: ATOMIC_BLOCK; Retail compatibility with original: see implementation details in <util/atomic.h> from AVR SDK.
+#define OFSM_CONFIG_ATOMIC_RESTORESTATE ATOMIC_RESTORESTATE     //Default: ATOMIC_RESTORESTATE see <util/atomic.h>
 
 CUSTOMIZATION
 =============
-#define OFSM_CONFIG_CUSTOM_DEBUG_PUTS _ofsm_debug_puts //typedef: void _ofsm_debug_puts(const char* ). Function that prints/sends formatted debug messages.
-#define OFSM_CONFIG_CUSTOM_ENTER_SLEEP_FUNC _ofsm_enter_sleep //typedef: void _ofsm_enter_sleep().
-#define OFSM_CONFIG_CUSTOM_WAKEUP_FUNC _ofsm_wakeup //typedef: void _ofsm_wakeup().
+#define OFSM_CONFIG_CUSTOM_DEBUG_PUTS _ofsm_debug_puts                          //typedef: void _ofsm_debug_puts(const char* ). Function that prints/sends formatted debug messages.
+#define OFSM_CONFIG_CUSTOM_ENTER_SLEEP_FUNC _ofsm_enter_sleep                   //typedef: void _ofsm_enter_sleep().
+#define OFSM_CONFIG_CUSTOM_WAKEUP_FUNC _ofsm_wakeup                             //typedef: void _ofsm_wakeup().
 #define OFSM_CONFIG_CUSTOM_INIT_HEARTBEAT_PROVIDER_FUNC _ofsm_piggyback_timer_0 //typedef: void _ofsm_piggyback_timer_0(). Function: expected to call: ofsm_hearbeat(unsigned long currentTicktime)
 #define OFSM_CONFIG_CUSTOM_PC_SIMULATION_EVENT_GENERATOR_FUNC _ofsm_simulation_event_generator //typedef: void _ofsm_simulation_event_generator(). Function: expected to call: ofsm_hearbeat(unsigned long currentTicktime)
 
 PC SIMULATION
 =============
-Ultimate goal is to be able to run properly formatted sketch in simulation mode on any PC using GCC or C+11 compatible compiler (including VS2012) without any change.
+Ultimate goal is to be able to run properly formatted sketch in simulation mode on any PC using GCC or other C+11 compatible compiler (including VSC012) without any change.
 To do that skatch code should follow the following rules:
 * OFSM_CONFIG_PC_SIMULATION definition should appear at the very top of the sketch file before any other includes
 * All MCU specific code should be surrounded by
 	#ifndef OFSM_CONFIG_PC_SIMULATION
 		<MCU specific code>
 	#endif
-* All simulation specific code should be similarly surrounded with #ifdef OFSM_CONFIG_PC_SIMULATION....
+* All simulation specific code should be similarly surrounded with #ifdef OFSM_CONFIG_PC_SIMULATION.... (fsm_debug_printf() can be left as is, it works in both simulation and non-simulated environments)
 	Default simulation implementation is based on C++ threads. First thread is running state machine and Second is running heartbeat provider with resolution of  OFSM_CONFIG_PC_SIMULATION_TICK_MS.
-	Main program's thread is used as event generator. Default implementation reads input in infinite loop and queues corresponding event for OFSM. see PC SIMULATION EVENT GENERATOR section for details.
-	IMPORTANT NOTE: For simulation to work, it needs to define almost all OFSM_CONFIG_CUSTOM.... macros.
-	Therefore, if user does customization for MCU purposes, all definitions should be surrounded by #ifndef OFSM_CONFIG_PC_SIMULATION .... #endif construct.
+	Main program's thread is used as event generator. Default implementation reads input in infinite loop and queues corresponding event to OFSM. see PC SIMULATION EVENT GENERATOR section for details.
+	IMPORTANT NOTE: For simulation to work, it re-defines almost all OFSM_CONFIG_CUSTOM.... macros.
+	Therefore, if user does customization for MCU purposes, all declarations should be surrounded by #ifndef OFSM_CONFIG_PC_SIMULATION .... #endif construct.
 	At the same time one can completely override all parts of simulation as well.
 
 PC SIMULATION EVENT GENERATOR
 =============================
 Event generator is implemented as infinite loop which reads event even information for stdin and queues it in OFSM.
 Input Format is: ['f']<event code or command>[,<event data>[,<designated group index>] ([] - denotes optional parameters).
-event command can be presided with 'f' to indicate that event needs to be forced (see queue_event api for explanations). By default event will replace the same event on the top of the queue.
+event command can be prefixed with 'f' to indicate that event needs to be forced (see queue_event api for explanations). By default event will replace the same event on the top of the queue.
 <event code or command> - numeric event code or word 'exit' (to exit simulation) or 'sleep' (to put generator to sleep for number of milliseconds).
 sleep is not needed when event generator works in interactive mode as it is naturally sleeps while awaiting users input, but may be important in batch mode (see below).
 <event data> - (optional) number representing event data (default is 0) or number of milliseconds in case of 'sleep' (default 1000 (one second)).
 <designated group index> - (optional) group index for which event should be queued (default is 0), or letter 'g' to queue global event (to all groups)
 Examples of input:
-* 1  (queue event 1 data 0 into group 0)
-* 1,200,1 (queue event 1 data 200 into group 1)
-* sleep,10000 (sleep for 10 seconds before accepting new input)
-* exit (terminate simulation)
+* 1  //queue event 1 data 0 into group 0
+* 1,200,1 //queue event 1 data 200 into group 1
+* sleep,10000 //sleep for 10 seconds before accepting new input)
+* exit //terminate simulation
 
 Simulation can also be performed in batch mode. In which case user simply writes sequence of events into text file and pipes it into the sketch executable, example:
 * myscketch < events.txt
@@ -190,7 +191,6 @@ Simulation can also be performed in batch mode. In which case user simply writes
 LIMITATIONS
 ============
 * Number of events in single FSM, number of FSMs in single group, number of groups within OFSM must not exceed 255!
-TBI: * FSM delay must not exceed 65535 ticks(hex: 0xFFFF), bigger number will be treated as INIFINITE TIMEOUT. This limitation is needed to properly deal with time overflow.
 
 TODO
 ====
@@ -202,14 +202,14 @@ TODO
 #define __OFSM_H_
 
 #ifdef OFSM_CONFIG_PC_SIMULATION
-#include <iostream>
-#include <thread>
-#include <string>
-#include <vector>
-#include <sstream>
-#include <algorithm>
-#include <mutex>
-#include <condition_variable>
+#   include <iostream>
+#   include <thread>
+#   include <string>
+#   include <vector>
+#   include <sstream>
+#   include <algorithm>
+#   include <mutex>
+#   include <condition_variable>
 #endif
 
 //default event data type
