@@ -43,6 +43,7 @@ Important design decisions and usage notes:
 * Internal time within OFSM is measured in ticks. Tick may represent microseconds, milliseconds or any other time dimensions depending on "heartbeat" provider. (see above).
   Thus, if rules (stated in this section) are followed. The same implementation can run with different speeds and environments.
 * As outcome of previous statement, it is recommended that event handlers rely on time (in ticks) supplied by OFSM (ofsm_get_time()) instead of external sources (eg: millis()/micros ...);
+* It is recommended that handlers never do a time math on their own, and rely completely on relative delays. As time math should account for timer overflow to work in all cases.
 * Event handlers are not expected to know transition states, and should rely on events to move FSM. (see Handlers API for details);
 * FSMs can be organized into groups of dependent state machines. NOTE: One group shares the same set of events. Each queued event processed by all FSMs within the group;
 * Events are never directly processed but queued, allowing better parallelism between multiple FSM.
@@ -137,7 +138,6 @@ OFSM can be "shaped" in many different ways using configuration switches. NOTE: 
 #define OFSM_CONFIG_DEFAULT_STATE_TRANSITION_DELAY              //Default 0. Specifies default transition delay, if event handler didn't set one.
 #define OFSM_CONFIG_WAKEUP_TIME_RELATIVE_TO_MOST_CURRENT_TIME   //Default undefined. If precision of delay is important define this constant. Otherwise, keep it undefined to achieve better synchronism with other State Machines.
 #define OFSM_CONFIG_EVENT_DATA_TYPE uint8_t                     //Default uint8_t (8 bits). Event data type.
-#define OFSM_CONFIG_TAKE_NEW_TIME_SNAPSHOT_FOR_EACH_GROUP       //Default undefined.
 #define OFSM_CONFIG_SLEEP_MODE SLEEP_MODE_PWR_DOWN              //Default: SLEEP_MODE_PWR_DOWN, see ( <avr/sleep.h> for more options)
 #define OFSM_CONFIG_DEBUG_PRINT_ADD_TIMESTAMP                   //Default undefined. When defined ofsm_debug_print() it will prefix debug messages with [<current time in ticks>]<debug message>.
 #define OFSM_CONFIG_PC_SIMULATION                               //Default undefined. See PC SIMULATION section for additional info
@@ -201,6 +201,14 @@ TODO
 #ifndef __OFSM_H_
 #define __OFSM_H_
 
+/*Visual C/C++ support*/
+#ifdef _MSC_VER
+#   include<stdint.h> /*for uint8_t support*/
+#   ifndef __attribute__
+#       define __attribute__(xxx) 
+#   endif
+#endif
+
 #ifdef OFSM_CONFIG_PC_SIMULATION
 #   include <iostream>
 #   include <thread>
@@ -217,34 +225,37 @@ TODO
 #	define OFSM_CONFIG_EVENT_DATA_TYPE uint8_t
 #endif
 
+/*--------------------------------
+Type definitions
+----------------------------------*/
 struct OFSMTransition;
 struct OFSMEventData;
 struct OFSM;
-struct OFSMState; 
+struct OFSMState;
 struct OFSMGroup;
 typedef void(*OFSMHandler)(OFSMState *fsmState);
 
-unsigned long ofsm_get_time();
+/*#define ofsm_get_time(time,timeFlags) //see implementation below */
+
 void ofsm_heartbeat(unsigned long currentTime);
 void ofsm_queue_global_event(bool forceNewEvent, uint8_t eventCode, OFSM_CONFIG_EVENT_DATA_TYPE eventData);
 void ofsm_queue_group_event(uint8_t groupIndex, bool forceNewEvent, uint8_t eventCode, OFSM_CONFIG_EVENT_DATA_TYPE eventData);
 void ofsm_heartbeat(unsigned long currentTime);
 
 void _ofsm_queue_group_event(uint8_t groupIndex, OFSMGroup *group, bool forceNewEvent, uint8_t eventCode, OFSM_CONFIG_EVENT_DATA_TYPE eventData);
-void _ofsm_group_process_pending_event(OFSMGroup *group, uint8_t groupIndex, unsigned long currentTime, uint8_t timeFlags, unsigned long *groupEarliestWakeupTime, uint8_t *groupAndedFsmFlags);
-void _ofsm_fsm_process_event(OFSM *fsm, uint8_t groupIndex, uint8_t fsmIndex, OFSMEventData *e, unsigned long currentTime, uint8_t timeFlags);
+void _ofsm_group_process_pending_event(OFSMGroup *group, uint8_t groupIndex, unsigned long *groupEarliestWakeupTime, uint8_t *groupAndedFsmFlags);
+void _ofsm_fsm_process_event(OFSM *fsm, uint8_t groupIndex, uint8_t fsmIndex, OFSMEventData *e);
 void _ofsm_check_timeout();
 void _ofsm_setup();
 void _ofsm_start();
+
+/*see declaration of fsm_... macros below*/
 
 #ifdef OFSM_CONFIG_DEBUG_LEVEL
 #define _OFSM_IMPL_DEBUG_PRINTF
 #include <string>
 void ofsm_debug_printf(const char* format, ...);
 #endif
-
-#define OFSM_MIN(a,b) a > b ? b : a;
-
 
 /*---------------------
 Simulation defines
@@ -280,7 +291,7 @@ Simulation defines
 #endif
 
 #ifndef OFSM_CONFIG_CUSTOM_INIT_HEARTBEAT_PROVIDER_FUNC
-	static void inline _ofsm_dummy(){}
+	static void inline _ofsm_dummy()__attribute__((__always_inline__)){}
 #	define OFSM_CONFIG_CUSTOM_INIT_HEARTBEAT_PROVIDER_FUNC _ofsm_dummy
 #endif
 
@@ -305,7 +316,7 @@ Simulation defines
 #endif
 
 #ifndef OFSM_CONFIG_ATOMIC_BLOCK
-	static std::mutex _ofsm_simulation_mutex; 
+    static std::recursive_mutex _ofsm_simulation_mutex; 
 	static uint8_t _ofsm_simulation_atomic_counter;
 #	ifdef OFSM_CONFIG_ATOMIC_RESTORESTATE
 #		undef OFSM_CONFIG_ATOMIC_RESTORESTATE
@@ -372,35 +383,6 @@ General defines
 #	endif
 #endif
 
-/*time comparison*/
-/*ao, bo - 'o' means overflow*/
-#define _OFSM_TIME_A_GT_B(a, ao, b, bo)  (bool)( (ao && (a >  b) ) || ( (a > b)  && !bo) || (!ao && !bo) )
-#define _OFSM_TIME_A_GTE_B(a, ao, b, bo) (bool)( (ao && (a >= b) ) || ( (a >= b) && !bo) || (!ao && !bo) )
-
-/*Flags*/
-//Common flags
-#define _OFSM_FLAG_INFINITE_SLEEP			0x1
-#define _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW	0x2 /*indicate if wakeup time is scheduled after post overflow of time register*/
-#define _OFSM_FLAG_ALL (_OFSM_FLAG_INFINITE_SLEEP | _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW)
-
-//FSM Flags
-#define _OFSM_FLAG_FSM_PREVENT_TRANSITION	0x10
-#define _OFSM_FLAG_FSM_NEXT_STATE_OVERRIDE	0x20
-#define _OFSM_FLAG_FSM_DELAY_RELATIVE_TO_MOST_CURRENT_TIME 0x40
-
-#define _OFSM_FLAG_FSM_FLAG_ALL (_OFSM_FLAG_ALL | _OFSM_FLAG_FSM_PREVENT_TRANSITION | _OFSM_FLAG_FSM_NEXT_STATE_OVERRIDE | _OFSM_FLAG_FSM_DELAY_RELATIVE_TO_MOST_CURRENT_TIME)
-
-
-
-//GROUP Flags
-#define _OFSM_FLAG_GROUP_BUFFER_OVERFLOW	0x10
-
-//Orchestra Flags
-#define _OFSM_FLAG_OFSM_EVENT_QUEUED	0x10
-#define _OFSM_FLAG_OFSM_TIMER_OVERFLOW	0x20 
-#define _OFSM_FLAG_OFSM_INTERRUPT_INFINITE_SLEEP_ON_TIMEOUT	0x40 /*used at startup to allow queued timeout event to wakeup FSM*/
-
-
 /*--------------------------------
 Type definitions
 ----------------------------------*/
@@ -416,8 +398,8 @@ struct OFSMEventData {
 
 struct OFSM {
 	OFSMTransition**    transitionTable;
-	uint8_t             transitionTableEventCount; //number of elements in each row (number of events defined)
-	OFSMHandler         initHandler; //optional, can be null
+	uint8_t             transitionTableEventCount;  /*number of elements in each row (number of events defined)*/
+	OFSMHandler         initHandler;                /*optional, can be null*/
 	void*               fsmPrivateInfo;
 	uint8_t             flags; 
 	unsigned long       wakeupTime; 
@@ -426,10 +408,10 @@ struct OFSM {
 
 struct OFSMState {
 	OFSM				*fsm;
-	unsigned long		timeLeftBeforeTimeout; //time left before timeout set by previous transition
 	OFSMEventData*      e;
-	uint8_t             groupIndex;  //group index where current fsm is registered
-	uint8_t             fsmIndex;	 //fsm index within group
+	unsigned long		timeLeftBeforeTimeout;      /*time left before timeout set by previous transition*/
+	uint8_t             groupIndex;                 /*group index where current fsm is registered*/
+	uint8_t             fsmIndex;	                /*fsm index within group*/
 };
 
 struct OFSMGroup {
@@ -443,7 +425,61 @@ struct OFSMGroup {
 	volatile uint8_t    currentEventIndex; //queue cell that is being processed by ofsm
 };
 
-#define _OFSM_GET_TRANSTION(fsm, eventCode) *(fsm->transitionTable + (fsm->currentState * fsm->transitionTableEventCount) + eventCode)
+/*defined typedef void(*OFSMHandler)(OFSMState *fsmState);*/
+
+/*------------------------------------------------
+Flags
+-------------------------------------------------*/
+//Common flags
+#define _OFSM_FLAG_INFINITE_SLEEP			0x1
+#define _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW	0x2 /*indicate if wakeup time is scheduled after post overflow of time register*/
+#define _OFSM_FLAG_ALL (_OFSM_FLAG_INFINITE_SLEEP | _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW)
+
+//FSM Flags
+#define _OFSM_FLAG_FSM_PREVENT_TRANSITION	0x10
+#define _OFSM_FLAG_FSM_NEXT_STATE_OVERRIDE	0x20
+#define _OFSM_FLAG_FSM_FLAG_ALL (_OFSM_FLAG_ALL | _OFSM_FLAG_FSM_PREVENT_TRANSITION | _OFSM_FLAG_FSM_NEXT_STATE_OVERRIDE )
+
+//GROUP Flags
+#define _OFSM_FLAG_GROUP_BUFFER_OVERFLOW	0x10
+
+//Orchestra Flags
+#define _OFSM_FLAG_OFSM_EVENT_QUEUED	0x10
+#define _OFSM_FLAG_OFSM_TIMER_OVERFLOW	0x20 
+#define _OFSM_FLAG_OFSM_INTERRUPT_INFINITE_SLEEP_ON_TIMEOUT	0x40 /*used at startup to allow queued timeout event to wakeup FSM*/
+
+/*------------------------------------------------
+Macros
+-------------------------------------------------*/
+#define fsm_prevent_transition(fsms)					((fsms->fsm)[0].flags |= _OFSM_FLAG_FSM_PREVENT_TRANSITION)
+
+#define fsm_set_transition_delay(fsms, delayTicks)		((fsms->fsm)[0].wakeupTime = delayTicks)
+#define fsm_set_inifinite_delay(fsms)					((fsms->fsm)[0].flags |= _OFSM_FLAG_INFINITE_SLEEP)
+#define fsm_set_next_state(fsms, nextStateId)			((fsms->fsm)[0].flags |= _OFSM_FLAG_FSM_NEXT_STATE_OVERRIDE, (fsms->fsm)[0].currentState = nextStateId)
+
+#define fsm_get_private_data(fsms)						((fsms->fsm)[0].fsmPrivateInfo)
+#define fsm_get_private_data_cast(fsms, castType)		((castType)((fsm->fsm)[0].PrivateInfo)
+#define fsm_get_state(fsms)								((fsms->fsm)[0].currentState)
+#define fsm_get_time_left_before_timeout(fsms)          (fsms->timeLeftBeforeTimeout)
+#define fsm_get_fsm_index(fsms)							(fsms->index)	
+#define fsm_get_group_index(fsms)						(fsms->groupIndex)
+#define fsm_get_event_code(fsms)						((fsms->e)[0].eventCode)
+#define fsm_get_event_data(fsms)						((fsms->e)[0].eventData)
+
+
+#define ofsm_get_time(currentTime, timeFlags) \
+    OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { \
+		currentTime = _ofsmTime; \
+        timeFlags = _ofsmFlags & _OFSM_FLAG_OFSM_TIMER_OVERFLOW; \
+	}
+
+#define _OFSM_MIN(a,b) a > b ? b : a;
+#define _OFSM_GET_TRANSTION(fsm, eventCode) ((OFSMTransition*)( (fsm->transitionTableEventCount * fsm->currentState +  eventCode) * sizeof(OFSMTransition) + (char*)fsm->transitionTable) )
+
+/*time comparison*/
+/*ao, bo - 'o' means overflow*/
+#define _OFSM_TIME_A_GT_B(a, ao, b, bo)  ( (a  >  b) && (ao || !bo) )
+#define _OFSM_TIME_A_GTE_B(a, ao, b, bo) ( (a  >=  b) && (ao || !bo) )
 
 /*--------------------------------------
 Implementation
@@ -454,21 +490,130 @@ volatile uint8_t        _ofsmFlags;
 volatile unsigned long  _ofsmWakeupTime;
 volatile unsigned long  _ofsmTime;
 
-#define fsm_prevent_transition(fsm)						(fsm->flags |= _OFSM_FLAG_FSM_PREVENT_TRANSITION)
-#define fsm_set_transition_delay(fsm, delayTicks)		(fsm->wakeupTime = delayTicks)
-#define fsm_set_transition_delay_from_current_time(fsm, d) (fsm->flag |= _OFSM_FLAG_FSM_DELAY_RELATIVE_TO_MOST_CURRENT_TIME, fsm->wakeupTime = delayTicks)
-#define fsm_get_time_left_before_timeout(fsm)           TBI: //TBI:
-#define fsm_set_inifinite_delay(fsm)					(fsm->flags |= _OFSM_FLAG_INFINITE_SLEEP)
-#define fsm_get_private_data(fsm)						(fsm->fsmPrivateInfo)
-#define fsm_get_private_data_cast(fsm, castType)		((castType)fsm->PrivateInfo)
-#define fsm_get_fsm_index(fsm)							(fsm->index)	
-#define fsm_get_group_index(fsm)						(fsm->groupIndex)
-#define fsm_get_state(fsm)								(fsm->currentState)
-#define fsm_get_event_code(fsm)							((fsm->e)[0].eventCode)
-#define fsm_get_event_data(fsm)							((fsm->e)[0].eventData)
-#define fsm_set_next_state(fsm, nextStateId)			(fsm->flags |= _OFSM_FLAG_FSM_NEXT_STATE_OVERRIDE, fsm->currentState = nextStateId)
+static void inline _ofsm_fsm_process_event(OFSM *fsm, uint8_t groupIndex, uint8_t fsmIndex, OFSMEventData *e) __attribute__((__always_inline__)) 
+{
+	//TBI:
+	OFSMTransition *t;
+	uint8_t prevState;
+	uint8_t oldFlags;
+	unsigned long oldWakeupTime;
+	uint8_t wakeupTimeGTcurrentTime;
+	OFSMState fsmState;
+	unsigned long currentTime;
+	uint8_t timeFlags;
 
-static void inline _ofsm_group_process_pending_event(OFSMGroup *group, uint8_t groupIndex, unsigned long currentTime, uint8_t timeFlags, unsigned long *groupEarliestWakeupTime, uint8_t *groupAndedFsmFlags) {
+#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 1
+	long delay = -1;
+	char overrideStateFlag[] = { '\0', '\0' };
+#endif
+	
+	if (e->eventCode >= fsm->transitionTableEventCount) {
+#ifdef OFSM_CONFIG_DEBUG_LEVEL_OFSM
+		ofsm_debug_printf("G(%i)F(%i): Unexpected Event!!! Ignored eventCode %i.\n", groupIndex, fsmIndex, e->eventCode);
+#endif
+		return;
+	}
+
+    ofsm_get_time(currentTime, timeFlags);
+	
+	//check if wake time has been reached, wake up immediately if not timeout event, ignore non-handled   events.
+	t = _OFSM_GET_TRANSTION(fsm, e->eventCode);
+	wakeupTimeGTcurrentTime = _OFSM_TIME_A_GT_B(fsm->wakeupTime, (fsm->flags & _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW), currentTime, (timeFlags & _OFSM_FLAG_OFSM_TIMER_OVERFLOW));
+    if (!t->eventHandler || (0 == e->eventCode && (((fsm->flags & _OFSM_FLAG_INFINITE_SLEEP) && !(_ofsmFlags & _OFSM_FLAG_OFSM_INTERRUPT_INFINITE_SLEEP_ON_TIMEOUT)) || wakeupTimeGTcurrentTime))) {
+		if (!t->eventHandler) {
+			fsm->flags |= _OFSM_FLAG_INFINITE_SLEEP;
+#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 2
+			ofsm_debug_printf("G(%i)F(%i): Handler is not specified. Assuming infinite sleep.\n", groupIndex, fsmIndex);
+		}
+		else if ((fsm->flags & _OFSM_FLAG_INFINITE_SLEEP) && !(_ofsmFlags & _OFSM_FLAG_OFSM_INTERRUPT_INFINITE_SLEEP_ON_TIMEOUT)) {
+			ofsm_debug_printf("G(%i)F(%i): State Machine is in infinite sleep.\n", groupIndex, fsmIndex);
+		}
+		else if (wakeupTimeGTcurrentTime) {
+			ofsm_debug_printf("G(%i)F(%i): State Machine is asleep. Wakeup is scheduled in %i ticks.\n", groupIndex, fsmIndex, fsm->wakeupTime - currentTime);
+#endif
+		}
+		return;
+	}
+
+#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 0
+	ofsm_debug_printf("G(%i)F(%i): State: %i, processing eventCode %i eventData %i(0x%08X)...\n", groupIndex, fsmIndex, fsm->currentState, e->eventCode, e->eventData, e->eventData);
+#endif 
+	//call handler
+	oldFlags = fsm->flags;
+	oldWakeupTime = fsm->wakeupTime;
+	fsm->wakeupTime = 0;
+	fsm->flags &= ~_OFSM_FLAG_FSM_FLAG_ALL; //clear flags
+
+	fsmState.fsm = fsm;
+	fsmState.e = e;
+	fsmState.groupIndex = groupIndex;
+	fsmState.fsmIndex = fsmIndex;
+    fsmState.timeLeftBeforeTimeout = 0;
+
+    if(oldFlags & _OFSM_FLAG_INFINITE_SLEEP) {
+        fsmState.timeLeftBeforeTimeout = 0xFFFFFFFF;
+    } else {
+        if(wakeupTimeGTcurrentTime) {
+            fsmState.timeLeftBeforeTimeout = oldWakeupTime - currentTime; /* time overflow will be accounted for*/
+        }
+    }
+
+	(t->eventHandler)(&fsmState);
+	
+	//check if error was reported, restore original FSM state
+	if (fsm->flags & _OFSM_FLAG_FSM_PREVENT_TRANSITION) {
+		fsm->flags = oldFlags;
+		fsm->wakeupTime = oldWakeupTime;
+#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 1
+		ofsm_debug_printf("G(%i)F(%i): Handler requested no transition. FSM state was restored.\n", groupIndex, fsmIndex);
+#endif
+		return;
+	}
+	
+	//make a transition
+#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 1
+	prevState = fsm->currentState;
+#endif
+	if (!(fsm->flags & _OFSM_FLAG_FSM_NEXT_STATE_OVERRIDE)) {
+		fsm->currentState = t->newState;
+	}
+#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 1
+	else {
+		overrideStateFlag[0] = 'O';
+	}
+#endif
+	
+	//check transition delay, assume infinite sleep if new state doesn't accept Timeout Event
+	t = _OFSM_GET_TRANSTION(fsm, 0);
+	if (!t->eventHandler) {
+		fsm->flags |= _OFSM_FLAG_INFINITE_SLEEP; //set infinite sleep
+#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 1
+		delay = -1;
+#endif
+	}
+	else if (0 == fsm->wakeupTime) {
+		fsm->wakeupTime = currentTime + OFSM_CONFIG_DEFAULT_STATE_TRANSITION_DELAY;
+#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 1
+		delay = OFSM_CONFIG_DEFAULT_STATE_TRANSITION_DELAY;
+#endif
+	}
+	else {
+#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 1
+		delay = fsm->wakeupTime;
+#endif
+		fsm->wakeupTime += currentTime;
+		if (fsm->wakeupTime < currentTime) {
+			fsm->flags |= _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW;
+		}
+	}
+#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 1
+	ofsm_debug_printf("G(%i)F(%i): Transitioning from state %i ==> %s%i. Transition delay: %i\n", groupIndex, fsmIndex, prevState, overrideStateFlag, fsm->currentState, delay);
+#endif
+
+}
+
+static void inline _ofsm_group_process_pending_event(OFSMGroup *group, uint8_t groupIndex, unsigned long *groupEarliestWakeupTime, uint8_t *groupAndedFsmFlags) __attribute__((__always_inline__)) 
+{
 	OFSMEventData e;
 	OFSM *fsm;
 	uint8_t andedFsmFlags = (uint8_t)0xFFFF;
@@ -501,48 +646,27 @@ static void inline _ofsm_group_process_pending_event(OFSMGroup *group, uint8_t g
 		ofsm_debug_printf("G(%i): currentEventIndex %i, nextEventIndex %i.\n", groupIndex, group->currentEventIndex, group->nextEventIndex);
 #endif
 	//Queue considered empty when (nextEventIndex == currentEventIndex) and buffer overflow flag is NOT set
-	if (!eventPending) {
 #if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 2
+	if (!eventPending) {
 		ofsm_debug_printf("G(%i): Event queue is empty.\n", groupIndex);
-#endif
 	}
-	else {
-#ifdef OFSM_CONFIG_TAKE_NEW_TIME_SNAPSHOT_FOR_EACH_GROUP
-		OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
-			currentTime = ofsm_get_time();
-			timeFlags = _ofsmFlags | _OFSM_FLAG_OFSM_TIMER_OVERFLOW;
-		}
 #endif
-	}
-	//iterate over fsms
+
+    //iterate over fsms
 	for (i = 0; i < group->groupSize; i++) {
 		fsm = (group->fsms)[i];
 		//if queue is empty don't call fsm just collect info
 		if (eventPending) {
-			//first iteration, wakeup from infinite sleep
-			if(_ofsmFlags & _OFSM_FLAG_OFSM_INTERRUPT_INFINITE_SLEEP_ON_TIMEOUT) {
-				fsm->flags &= ~_OFSM_FLAG_INFINITE_SLEEP;
-			}
-			//skip early timeout event
-			if (0 == e.eventCode 
-				&& ((fsm->flags & _OFSM_FLAG_INFINITE_SLEEP) 
-					|| _OFSM_TIME_A_GT_B(fsm->wakeupTime, (fsm->flags & _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW),  currentTime, (timeFlags & _OFSM_FLAG_OFSM_TIMER_OVERFLOW))
-				   )
-			   ) {
-#if OFSM_CONFIG_DEBUG_LEVEL_OFSM >  2
-				ofsm_debug_printf("G(%i): Timeout Event ignored. FSM index %i is still asleep.\n", groupIndex, i);
-#endif
-			}
-			else {
-				_ofsm_fsm_process_event(fsm, groupIndex, i, &e, currentTime);
-			}
+            _ofsm_fsm_process_event(fsm, groupIndex, i, &e);
 		}
 
-		andedFsmFlags &= fsm->flags;
 		//Take sleep period unless infinite sleep
 		if (!(fsm->flags & _OFSM_FLAG_INFINITE_SLEEP)) {
-			earliestWakeupTime = OFSM_MIN(earliestWakeupTime, fsm->wakeupTime);
+            if(_OFSM_TIME_A_GT_B(earliestWakeupTime, (andedFsmFlags & _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW), fsm->wakeupTime, (fsm->flags & _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW))) {
+                earliestWakeupTime = fsm->wakeupTime;
+            }
 		}
+        andedFsmFlags &= fsm->flags;
 	}
 
 	*groupEarliestWakeupTime = earliestWakeupTime;
@@ -568,8 +692,6 @@ void _ofsm_start() {
 		OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
 			_ofsmFlags |= _OFSM_FLAG_INFINITE_SLEEP; //prevents _ofsm_check_timeout() to ever accessing _ofsmWakeupTime and queue timeout while in process
 			_ofsmFlags &= ~_OFSM_FLAG_OFSM_EVENT_QUEUED; //reset event queued flag
-			timeFlags = _ofsmFlags | _OFSM_FLAG_OFSM_TIMER_OVERFLOW;
-			currentTime = ofsm_get_time();
 		}
 
 		andedFsmFlags = (uint8_t)0xFFFF;
@@ -579,9 +701,14 @@ void _ofsm_start() {
 #if OFSM_CONFIG_DEBUG_LEVEL > 2
 			ofsm_debug_printf("OFSM: Processing event for group index %i...\n", i);
 #endif
-			_ofsm_group_process_pending_event(group, i, currentTime, timeFlags, &groupEarliestWakeupTime, &groupAndedFsmFlags);
+			_ofsm_group_process_pending_event(group, i, &groupEarliestWakeupTime, &groupAndedFsmFlags);
+
+            if (!(groupAndedFsmFlags & _OFSM_FLAG_INFINITE_SLEEP)) {
+                if(_OFSM_TIME_A_GT_B(earliestWakeupTime, (andedFsmFlags & _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW), groupEarliestWakeupTime, (groupAndedFsmFlags & _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW))) {
+                    earliestWakeupTime = groupEarliestWakeupTime;
+                }
+            }
 			andedFsmFlags &= groupAndedFsmFlags;
-			earliestWakeupTime = OFSM_MIN(earliestWakeupTime, groupEarliestWakeupTime);
 		}
 
 		//if have pending events in either of group, repeat the step
@@ -593,8 +720,8 @@ void _ofsm_start() {
 		}
 
 		if (!(andedFsmFlags & _OFSM_FLAG_INFINITE_SLEEP)) {
-			currentTime = ofsm_get_time();
-			if (_OFSM_TIME_A_GTE_B(currentTime, ((uint8_t)_ofsmFlags & _OFSM_FLAG_OFSM_TIMER_OVERFLOW), earliestWakeupTime, (andedFsmFlags & _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW))) {
+			ofsm_get_time(currentTime, timeFlags);
+			if (_OFSM_TIME_A_GTE_B(currentTime, ((uint8_t)timeFlags & _OFSM_FLAG_OFSM_TIMER_OVERFLOW), earliestWakeupTime, (andedFsmFlags & _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW))) {
 #if OFSM_CONFIG_DEBUG_LEVEL > 2
 				ofsm_debug_printf("OFSM: Reached timeout. Queue global timeout event.\n", i);
 #endif
@@ -605,7 +732,7 @@ void _ofsm_start() {
 		//There is no need for ATOMIC, because _ofsm_check_timeout() will never access _ofsmWakeupTime while in process
 		//		OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
 		_ofsmWakeupTime = earliestWakeupTime;
-		_ofsmFlags |= (andedFsmFlags & _OFSM_FLAG_ALL);
+		_ofsmFlags = (_ofsmFlags & ~_OFSM_FLAG_ALL)|(andedFsmFlags & _OFSM_FLAG_ALL);
 		//		}
 
 		//if scheduled time is in overflow and timer is in overflow reset timer overflow flag
@@ -620,21 +747,15 @@ void _ofsm_start() {
 		ofsm_debug_printf("OFSM: Entering sleep... Wakeup Time %i.\n", _ofsmFlags & _OFSM_FLAG_INFINITE_SLEEP ? -1 : _ofsmWakeupTime);
 #endif
 		OFSM_CONFIG_CUSTOM_ENTER_SLEEP_FUNC();
+
 #if OFSM_CONFIG_DEBUG_LEVEL > 2
 		ofsm_debug_printf("OFSM: Waked up.\n");
 #endif
-
 	}
 }
 
-static unsigned long inline ofsm_get_time() { //TBI: make it a macro with two params
-	unsigned long time; 
-	OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
-		time = _ofsmTime;
-	}
-	return time;
-}
-static void inline _ofsm_check_timeout() {
+static void inline _ofsm_check_timeout() __attribute__((__always_inline__))
+{
 	/*not need as it is called from within atomic block	OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { */
 	//do nothing if infinite sleep
 	if (_ofsmFlags & _OFSM_FLAG_INFINITE_SLEEP) {
@@ -652,7 +773,8 @@ static void inline _ofsm_check_timeout() {
 	/*	}*/
 }
 
-static void inline ofsm_heartbeat(unsigned long currentTime) {
+static void inline ofsm_heartbeat(unsigned long currentTime) __attribute__((__always_inline__))
+{
 	unsigned long prevTime;
 	OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
 		prevTime = _ofsmTime;
@@ -725,17 +847,18 @@ void _ofsm_queue_group_event(uint8_t groupIndex, OFSMGroup *group, bool forceNew
 		}
 	}
 	OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
+
 #if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 0
 	if (!(debugFlags & 0x2) && debugFlags & 0x1) {
-		ofsm_debug_printf("G(%i): Buffer overflow. Event %i event data %i(0x%08X) dropped.\n", groupIndex, eventCode, eventData, eventData);
+		ofsm_debug_printf("G(%i): Buffer overflow. eventCode %i eventData %i(0x%08X) dropped.\n", groupIndex, eventCode, eventData, eventData);
 	}
+#endif
 #if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 1
 	else {
-		ofsm_debug_printf("G(%i): Queued event %i event data %i (0x%08X) (Updated %i, Buffer overflow %i).\n", groupIndex, eventCode, eventData, eventData, (debugFlags & 0x2) > 0, debugFlags & 0x1);
-#endif
-#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 2
+		ofsm_debug_printf("G(%i): Queued eventEvent %i eventData %i (0x%08X) (Updated %i, Buffer overflow %i).\n", groupIndex, eventCode, eventData, eventData, (debugFlags & 0x2) > 0, debugFlags & 0x1);
+#   if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 2
 		ofsm_debug_printf("G(%i): currentEventIndex %i, nextEventIndex %i.\n", groupIndex, group->currentEventIndex, group->nextEventIndex);
-#endif
+#   endif
 	}
 #endif
 }
@@ -754,10 +877,11 @@ void ofsm_debug_printf(const char* format, ...) {
 #	define ofsm_debug_printf(...) do{}while(0)
 #endif /* _OFSM_IMPL_DEBUG_PRINTF */
 
-static void inline ofsm_queue_group_event(uint8_t groupIndex, bool forceNewEvent, uint8_t eventCode, OFSM_CONFIG_EVENT_DATA_TYPE eventData) {
+static void inline ofsm_queue_group_event(uint8_t groupIndex, bool forceNewEvent, uint8_t eventCode, OFSM_CONFIG_EVENT_DATA_TYPE eventData) __attribute__((__always_inline__))
+{
 #ifdef OFSM_CONFIG_DEBUG_LEVEL_OFSM
 	if (groupIndex >= _ofsmGroupCount) {
-		ofsm_debug_printf("OFSM: eventCode %i eventData %i. Invalid group index %i. Event dropped.\n", eventCode, eventData, groupIndex);
+		ofsm_debug_printf("OFSM: Invalid Group Index!!! Dropped eventCode %i eventData %i. \n", groupIndex, eventCode, eventData);
 		return; 
 	}
 #endif
@@ -805,7 +929,9 @@ void _ofsm_simulation_wakeup() {
 
 #ifdef _OFSM_IMPL_DEBUG_PUTS
 void _ofsm_simulation_debug_puts(const char* str) {
-	unsigned long time = ofsm_get_time();
+	unsigned long time;
+    uint8_t timeFlags;
+    ofsm_get_time(time, timeFlags);
 	OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
 #ifdef OFSM_CONFIG_DEBUG_PRINT_ADD_TIMESTAMP
 		std::cout << "[" << time << "]";
@@ -947,7 +1073,9 @@ int main(int argc, char* argv[])
 #ifdef _OFSM_IMPL_DEBUG_PUTS
 void _ofsm_debug_puts(const char* str) {
 #ifdef OFSM_CONFIG_DEBUG_PRINT_ADD_TIMESTAMP
-	unsigned long time = ofsm_get_time();
+	unsigned long time;
+    uint8_t timeFlags;
+    ofsm_get_time(time, timeFlags);
 #endif
 	OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
 #ifdef OFSM_CONFIG_DEBUG_PRINT_ADD_TIMESTAMP
