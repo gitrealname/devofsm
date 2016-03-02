@@ -27,7 +27,7 @@ GOALS
 =====
 Main goals of this implementation are:
 * Testability!
-* Easy of debugging, including debugging on PC before flushing to the MCU;
+* Easy of debugging;
 * Easy of customization and support of different MCUs;
 * Re-usability of logic and simplicity of scaling up and down;
 * Memory used by internal code should depend on necessity and driven by configuration. Thus, reducing memory consumption and prevention of "dead" code;
@@ -108,7 +108,7 @@ INITIALIZATION AND START API
 
 INTERRUPT HANDLERS API
 ======================
-Interrupt handlers are expected to "know about" the following functions:
+Interrupt handlers are expected to care only about the following functions:
 * ofsm_queue_group_event(groupIndex, eventCode, eventData)
 * ofsm_queue_global_event(eventCode, eventData) //queue the same event to all groups
 
@@ -133,6 +133,13 @@ CONFIGURATION
 =============
 OFSM can be "shaped" in many different ways using configuration switches. NOTE: all configuration switches must be defined before #include <ofsm.h>:
 #define OFSM_CONFIG_DEBUG_LEVEL 3                               //Default undefined. Enables debug print functionality
+//If OFSM_CONFIG_DEBUG_LEVEL_OFSM is undefined, it get the same value as OFSM_CONFIG_DEBUG_LEVEL.
+//OFSM_CONFIG_DEBUG_LEVEL_OFSM value determines level of debug/trace output from OFSM. The following are debug output categories levels used by OFSM:
+// 0 - no trace/debug messages from OFSM
+// 1 - sever errors; if you getting one of those there is a good chance that definition of the State Machine or interrupt logic  is incorrect.
+// 2 - state transition messages.
+// 3 - information messages.
+// 4 - debug messages.
 #define OFSM_CONFIG_DEBUG_LEVEL_OFSM OFSM_CONFIG_DEBUG_LEVEL    //Default OFSM_CONFIG_DEBUG_LEVEL. when level 0, all debug prints from OFSM will be disabled.
 #define OFSM_CONFIG_EXTERNAL_SERIAL_INITIALIZATION              //Default undefined. if defined no serial initialization will be made, assuming it is initialized elsewhere
 #define OFSM_CONFIG_DEFAULT_STATE_TRANSITION_DELAY              //Default 0. Specifies default transition delay, if event handler didn't set one.
@@ -218,11 +225,27 @@ TODO
 #   include <algorithm>
 #   include <mutex>
 #   include <condition_variable>
+#	include <functional> 
+#	include <cctype>
+#	include <locale>
 #endif
 
-//default event data type
+/*default event data type*/
 #ifndef OFSM_CONFIG_EVENT_DATA_TYPE
 #	define OFSM_CONFIG_EVENT_DATA_TYPE uint8_t
+#endif
+
+/**/
+#ifdef OFSM_CONFIG_DEBUG_LEVEL
+#	define _OFSM_IMPL_DEBUG_PRINTF
+	void ofsm_debug_printf(const char* format, ...);
+#else 
+#	define ofsm_debug_printf(...) do{}while(0)
+#endif
+
+/*define OFSM_CONFIG_DEBUG_LEVEL_OFSM*/
+#ifndef OFSM_CONFIG_DEBUG_LEVEL_OFSM
+#		define OFSM_CONFIG_DEBUG_LEVEL_OFSM OFSM_CONFIG_DEBUG_LEVEL
 #endif
 
 /*--------------------------------
@@ -251,11 +274,6 @@ void _ofsm_start();
 
 /*see declaration of fsm_... macros below*/
 
-#ifdef OFSM_CONFIG_DEBUG_LEVEL
-#define _OFSM_IMPL_DEBUG_PRINTF
-#include <string>
-void ofsm_debug_printf(const char* format, ...);
-#endif
 
 /*---------------------
 Simulation defines
@@ -272,7 +290,10 @@ Simulation defines
 
 /*DEBUG should be turned on during simulation*/
 #ifndef OFSM_CONFIG_DEBUG_LEVEL
-#define OFSM_CONFIG_DEBUG_LEVEL 0
+#	define OFSM_CONFIG_DEBUG_LEVEL 0
+#	ifndef OFSM_CONFIG_DEBUG_LEVEL_OFSM
+#		define OFSM_CONFIG_DEBUG_LEVEL_OFSM OFSM_CONFIG_DEBUG_LEVEL 
+#	endif
 #endif
 
 /*other overrides*/
@@ -371,18 +392,6 @@ General defines
 #	define OFSM_CONFIG_EVENT_DATA_TYPE uint8_t
 #endif
 
-/*define OFSM_CONFIG_DEBUG_LEVEL_OFSM*/
-#ifndef OFSM_CONFIG_DEBUG_LEVEL_OFSM
-#	ifndef OFSM_CONFIG_DEBUG_LEVEL
-#		define OFSM_CONFIG_DEBUG_LEVEL_OFSM 0
-#	else /*is debug*/
-#		ifndef _ofsm_debug_printf
-#			include <stdarg.h>
-#		endif
-#		define OFSM_CONFIG_DEBUG_LEVEL_OFSM OFSM_CONFIG_DEBUG_LEVEL
-#	endif
-#endif
-
 /*--------------------------------
 Type definitions
 ----------------------------------*/
@@ -473,7 +482,6 @@ Macros
         timeFlags = _ofsmFlags & _OFSM_FLAG_OFSM_TIMER_OVERFLOW; \
 	}
 
-#define _OFSM_MIN(a,b) a > b ? b : a;
 #define _OFSM_GET_TRANSTION(fsm, eventCode) ((OFSMTransition*)( (fsm->transitionTableEventCount * fsm->currentState +  eventCode) * sizeof(OFSMTransition) + (char*)fsm->transitionTable) )
 
 /*time comparison*/
@@ -504,11 +512,11 @@ static void inline _ofsm_fsm_process_event(OFSM *fsm, uint8_t groupIndex, uint8_
 
 #if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 1
 	long delay = -1;
-	char overrideStateFlag[] = { '\0', '\0' };
+	char overridenState = ' ';
 #endif
 	
 	if (e->eventCode >= fsm->transitionTableEventCount) {
-#ifdef OFSM_CONFIG_DEBUG_LEVEL_OFSM
+#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 0
 		ofsm_debug_printf("G(%i)F(%i): Unexpected Event!!! Ignored eventCode %i.\n", groupIndex, fsmIndex, e->eventCode);
 #endif
 		return;
@@ -522,7 +530,7 @@ static void inline _ofsm_fsm_process_event(OFSM *fsm, uint8_t groupIndex, uint8_
     if (!t->eventHandler || (0 == e->eventCode && (((fsm->flags & _OFSM_FLAG_INFINITE_SLEEP) && !(_ofsmFlags & _OFSM_FLAG_OFSM_INTERRUPT_INFINITE_SLEEP_ON_TIMEOUT)) || wakeupTimeGTcurrentTime))) {
 		if (!t->eventHandler) {
 			fsm->flags |= _OFSM_FLAG_INFINITE_SLEEP;
-#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 2
+#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 3
 			ofsm_debug_printf("G(%i)F(%i): Handler is not specified. Assuming infinite sleep.\n", groupIndex, fsmIndex);
 		}
 		else if ((fsm->flags & _OFSM_FLAG_INFINITE_SLEEP) && !(_ofsmFlags & _OFSM_FLAG_OFSM_INTERRUPT_INFINITE_SLEEP_ON_TIMEOUT)) {
@@ -535,8 +543,8 @@ static void inline _ofsm_fsm_process_event(OFSM *fsm, uint8_t groupIndex, uint8_
 		return;
 	}
 
-#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 0
-	ofsm_debug_printf("G(%i)F(%i): State: %i, processing eventCode %i eventData %i(0x%08X)...\n", groupIndex, fsmIndex, fsm->currentState, e->eventCode, e->eventData, e->eventData);
+#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 1
+	ofsm_debug_printf("G(%i)F(%i): State: %i. Processing eventCode %i eventData %i(0x%08X)...\n", groupIndex, fsmIndex, fsm->currentState, e->eventCode, e->eventData, e->eventData);
 #endif 
 	//call handler
 	oldFlags = fsm->flags;
@@ -564,7 +572,7 @@ static void inline _ofsm_fsm_process_event(OFSM *fsm, uint8_t groupIndex, uint8_
 	if (fsm->flags & _OFSM_FLAG_FSM_PREVENT_TRANSITION) {
 		fsm->flags = oldFlags;
 		fsm->wakeupTime = oldWakeupTime;
-#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 1
+#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 2
 		ofsm_debug_printf("G(%i)F(%i): Handler requested no transition. FSM state was restored.\n", groupIndex, fsmIndex);
 #endif
 		return;
@@ -579,7 +587,7 @@ static void inline _ofsm_fsm_process_event(OFSM *fsm, uint8_t groupIndex, uint8_
 	}
 #if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 1
 	else {
-		overrideStateFlag[0] = 'O';
+		overridenState = 'O';
 	}
 #endif
 	
@@ -607,7 +615,7 @@ static void inline _ofsm_fsm_process_event(OFSM *fsm, uint8_t groupIndex, uint8_
 		}
 	}
 #if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 1
-	ofsm_debug_printf("G(%i)F(%i): Transitioning from state %i ==> %s%i. Transition delay: %i\n", groupIndex, fsmIndex, prevState, overrideStateFlag, fsm->currentState, delay);
+	ofsm_debug_printf("G(%i)F(%i): Transitioning from state %i ==>%c%i. Transition delay: %i\n", groupIndex, fsmIndex, prevState, overridenState, fsm->currentState, delay);
 #endif
 
 }
@@ -642,11 +650,11 @@ static void inline _ofsm_group_process_pending_event(OFSMGroup *group, uint8_t g
 		    }
 		}
 	}
-#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 2		
+#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 3		
 		ofsm_debug_printf("G(%i): currentEventIndex %i, nextEventIndex %i.\n", groupIndex, group->currentEventIndex, group->nextEventIndex);
 #endif
 	//Queue considered empty when (nextEventIndex == currentEventIndex) and buffer overflow flag is NOT set
-#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 2
+#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 3
 	if (!eventPending) {
 		ofsm_debug_printf("G(%i): Event queue is empty.\n", groupIndex);
 	}
@@ -698,7 +706,7 @@ void _ofsm_start() {
 		earliestWakeupTime = 0xFFFFFFFF;
 		for (i = 0; i < _ofsmGroupCount; i++) {
 			group = (_ofsmGroups)[i];
-#if OFSM_CONFIG_DEBUG_LEVEL > 2
+#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 3
 			ofsm_debug_printf("OFSM: Processing event for group index %i...\n", i);
 #endif
 			_ofsm_group_process_pending_event(group, i, &groupEarliestWakeupTime, &groupAndedFsmFlags);
@@ -713,7 +721,7 @@ void _ofsm_start() {
 
 		//if have pending events in either of group, repeat the step
 		if (_ofsmFlags & _OFSM_FLAG_OFSM_EVENT_QUEUED) {
-#if OFSM_CONFIG_DEBUG_LEVEL > 2
+#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 3
 			ofsm_debug_printf("OFSM: At least one group has pending event(s). Re-process all groups.\n", i);
 #endif
 			continue;
@@ -722,7 +730,7 @@ void _ofsm_start() {
 		if (!(andedFsmFlags & _OFSM_FLAG_INFINITE_SLEEP)) {
 			ofsm_get_time(currentTime, timeFlags);
 			if (_OFSM_TIME_A_GTE_B(currentTime, ((uint8_t)timeFlags & _OFSM_FLAG_OFSM_TIMER_OVERFLOW), earliestWakeupTime, (andedFsmFlags & _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW))) {
-#if OFSM_CONFIG_DEBUG_LEVEL > 2
+#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 2
 				ofsm_debug_printf("OFSM: Reached timeout. Queue global timeout event.\n", i);
 #endif
 				ofsm_queue_global_event(false, 0, 0);
@@ -743,12 +751,12 @@ void _ofsm_start() {
 			}
             _ofsmFlags &= ~_OFSM_FLAG_OFSM_INTERRUPT_INFINITE_SLEEP_ON_TIMEOUT;
 		}
-#if OFSM_CONFIG_DEBUG_LEVEL > 2
+#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 3
 		ofsm_debug_printf("OFSM: Entering sleep... Wakeup Time %i.\n", _ofsmFlags & _OFSM_FLAG_INFINITE_SLEEP ? -1 : _ofsmWakeupTime);
 #endif
 		OFSM_CONFIG_CUSTOM_ENTER_SLEEP_FUNC();
 
-#if OFSM_CONFIG_DEBUG_LEVEL > 2
+#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 3
 		ofsm_debug_printf("OFSM: Waked up.\n");
 #endif
 	}
@@ -853,10 +861,10 @@ void _ofsm_queue_group_event(uint8_t groupIndex, OFSMGroup *group, bool forceNew
 		ofsm_debug_printf("G(%i): Buffer overflow. eventCode %i eventData %i(0x%08X) dropped.\n", groupIndex, eventCode, eventData, eventData);
 	}
 #endif
-#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 1
+#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 2
 	else {
 		ofsm_debug_printf("G(%i): Queued eventEvent %i eventData %i (0x%08X) (Updated %i, Buffer overflow %i).\n", groupIndex, eventCode, eventData, eventData, (debugFlags & 0x2) > 0, debugFlags & 0x1);
-#   if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 2
+#   if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 3
 		ofsm_debug_printf("G(%i): currentEventIndex %i, nextEventIndex %i.\n", groupIndex, group->currentEventIndex, group->nextEventIndex);
 #   endif
 	}
@@ -864,6 +872,8 @@ void _ofsm_queue_group_event(uint8_t groupIndex, OFSMGroup *group, bool forceNew
 }
 
 #ifdef _OFSM_IMPL_DEBUG_PRINTF
+#	include <string>
+#	include <stdarg.h>
 void ofsm_debug_printf(const char* format, ...) {
 	char buf[256];
 	char *b = buf;
@@ -873,15 +883,13 @@ void ofsm_debug_printf(const char* format, ...) {
 	va_end(argp);
 	OFSM_CONFIG_CUSTOM_DEBUG_PUTS(buf);
 }
-#else 
-#	define ofsm_debug_printf(...) do{}while(0)
 #endif /* _OFSM_IMPL_DEBUG_PRINTF */
 
 static void inline ofsm_queue_group_event(uint8_t groupIndex, bool forceNewEvent, uint8_t eventCode, OFSM_CONFIG_EVENT_DATA_TYPE eventData) __attribute__((__always_inline__))
 {
-#ifdef OFSM_CONFIG_DEBUG_LEVEL_OFSM
+#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 0
 	if (groupIndex >= _ofsmGroupCount) {
-		ofsm_debug_printf("OFSM: Invalid Group Index!!! Dropped eventCode %i eventData %i. \n", groupIndex, eventCode, eventData);
+		ofsm_debug_printf("OFSM: Invalid Group Index!!! Dropped eventCode %i eventData %i(0x%08X). \n", groupIndex, eventCode, eventData, eventData);
 		return; 
 	}
 #endif
@@ -894,7 +902,7 @@ void ofsm_queue_global_event(bool forceNewEvent, uint8_t eventCode, OFSM_CONFIG_
 
 	for (i = 0; i < _ofsmGroupCount; i++) {
 		group = (_ofsmGroups)[i];
-#if(OFSM_CONFIG_DEBUG_LEVEL_OFSM > 2)
+#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 3
 		ofsm_debug_printf("OFSM: Event queuing group %i...\n", i);
 #endif
 		_ofsm_queue_group_event(i, group, forceNewEvent, eventCode, eventData);
@@ -953,88 +961,88 @@ void _ofsm_simulation_sleep(int sleepMilliseconds) {
 }
 
 
-void _ofsm_simulation_event_generator() {
-	std::string line;
-	while (!std::cin.eof())
-	{
-
-		//read line from stdin
-		std::getline(std::cin, line);
-		
-		//prepare for parsing
-		std::stringstream strStream(line);
-		std::string token;
-		std::vector<std::string> tokens;
-
-		//parse by tokens 
-		while (std::getline(strStream, token, ',')) {
-			if (token.find_first_not_of(' ') >= 0) {
-				tokens.push_back(token);
-			}
-		}
-
-		std::string eventCodeStr;
-		int eventCode = 0;
-		int eventData = 0; 
-		std::string targetStr = "0";
-		uint8_t eventTargetGroup = 0;
-		bool forceNewEvent = false;
-		
-		//get components
-		std::string t;
-		switch (tokens.size()) {
-		case 3:
-			targetStr = tokens[2];
-			std::transform(targetStr.begin(), targetStr.end(), targetStr.begin(), ::tolower);
-			eventTargetGroup = atoi(targetStr.c_str());
-		case 2:
-			eventData = atoi(tokens[1].c_str());
-		case 1:
-			t = tokens[0];
-			std::transform(t.begin(), t.end(), t.begin(), ::tolower);
-			if (std::string::npos != t.find("exit")) {
-#if(OFSM_CONFIG_DEBUG_LEVEL > 1)
-				ofsm_debug_printf("EG: Exiting...\n");
-#endif
-				return;
-			}
-			if (std::string::npos != t.find("sleep")) {
-				if (tokens.size() == 1) {
-					eventData = 1000;
-				}
-#if(OFSM_CONFIG_DEBUG_LEVEL > 1)
-				ofsm_debug_printf("EG: Entering sleep for %i milliseconds...\n", eventData);
-#endif
-				_ofsm_simulation_sleep(eventData);
-				continue;
-			}
-			if (t[0] == 'f') {
-				forceNewEvent = true;
-				t = t.substr(1);
-			}
-			eventCode = atoi(t.c_str());
-			break;
-		default:
-			continue; //skip empty lines
-		}
-		
-		if (std::string::npos != targetStr.find("g")) {
-#if(OFSM_CONFIG_DEBUG_LEVEL > 1)
-			ofsm_debug_printf("EG: Queuing eventCode: %i eventData: %i GLOBAL (force new event: %i)...\n", eventCode, eventData, forceNewEvent);
-#endif
-			ofsm_queue_global_event(forceNewEvent, eventCode, eventData);
-		}
-		else {
-#if(OFSM_CONFIG_DEBUG_LEVEL > 1)
-			ofsm_debug_printf("EG: Queuing eventCode: %i eventData: %i; group %i (force new event: %i)...\n", eventCode, eventData, eventTargetGroup, forceNewEvent);
-#endif
-			ofsm_queue_group_event(eventTargetGroup, forceNewEvent, eventCode, eventData);
-		}
-#if (OFSM_CONFIG_PC_SIMULATION_SLEEP_BETWEEN_EVENTS_MS > 0) 
-		_ofsm_simulation_sleep(OFSM_CONFIG_PC_SIMULATION_SLEEP_BETWEEN_EVENTS_MS);
-#endif
-	}
-}
+//void _ofsm_simulation_event_generator() {
+//	std::string line;
+//	while (!std::cin.eof())
+//	{
+//
+//		//read line from stdin
+//		std::getline(std::cin, line);
+//		
+//		//prepare for parsing
+//		std::stringstream strStream(line);
+//		std::string token;
+//		std::vector<std::string> tokens;
+//
+//		//parse by tokens 
+//		while (std::getline(strStream, token, ',')) {
+//			if (token.find_first_not_of(' ') >= 0) {
+//				tokens.push_back(token);
+//			}
+//		}
+//
+//		std::string eventCodeStr;
+//		int eventCode = 0;
+//		int eventData = 0; 
+//		std::string targetStr = "0";
+//		uint8_t eventTargetGroup = 0;
+//		bool forceNewEvent = false;
+//		
+//		//get components
+//		std::string t;
+//		switch (tokens.size()) {
+//		case 3:
+//			targetStr = tokens[2];
+//			std::transform(targetStr.begin(), targetStr.end(), targetStr.begin(), ::tolower);
+//			eventTargetGroup = atoi(targetStr.c_str());
+//		case 2:
+//			eventData = atoi(tokens[1].c_str());
+//		case 1:
+//			t = tokens[0];
+//			std::transform(t.begin(), t.end(), t.begin(), ::tolower);
+//			if (std::string::npos != t.find("exit")) {
+//#if(OFSM_CONFIG_DEBUG_LEVEL > 1)
+//				ofsm_debug_printf("EG: Exiting...\n");
+//#endif
+//				return;
+//			}
+//			if (std::string::npos != t.find("sleep")) {
+//				if (tokens.size() == 1) {
+//					eventData = 1000;
+//				}
+//#if(OFSM_CONFIG_DEBUG_LEVEL > 1)
+//				ofsm_debug_printf("EG: Entering sleep for %i milliseconds...\n", eventData);
+//#endif
+//				_ofsm_simulation_sleep(eventData);
+//				continue;
+//			}
+//			if (t[0] == 'f') {
+//				forceNewEvent = true;
+//				t = t.substr(1);
+//			}
+//			eventCode = atoi(t.c_str());
+//			break;
+//		default:
+//			continue; //skip empty lines
+//		}
+//		
+//		if (std::string::npos != targetStr.find("g")) {
+//#if(OFSM_CONFIG_DEBUG_LEVEL > 1)
+//			ofsm_debug_printf("EG: Queuing eventCode: %i eventData: %i GLOBAL (force new event: %i)...\n", eventCode, eventData, forceNewEvent);
+//#endif
+//			ofsm_queue_global_event(forceNewEvent, eventCode, eventData);
+//		}
+//		else {
+//#if(OFSM_CONFIG_DEBUG_LEVEL > 1)
+//			ofsm_debug_printf("EG: Queuing eventCode: %i eventData: %i; group %i (force new event: %i)...\n", eventCode, eventData, eventTargetGroup, forceNewEvent);
+//#endif
+//			ofsm_queue_group_event(eventTargetGroup, forceNewEvent, eventCode, eventData);
+//		}
+//#if (OFSM_CONFIG_PC_SIMULATION_SLEEP_BETWEEN_EVENTS_MS > 0) 
+//		_ofsm_simulation_sleep(OFSM_CONFIG_PC_SIMULATION_SLEEP_BETWEEN_EVENTS_MS);
+//#endif
+//	}
+//}
 #endif /* _OFSM_IMPL_EVENT_GENERATOR */
 void setup();
 void loop();

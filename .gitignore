@@ -36,3 +36,5 @@
 /*.sdf
 /*.sln
 /*.suo
+*.vcxproj
+/*.vcxproj
