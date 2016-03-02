@@ -31,10 +31,10 @@
 # Debug files
 *.dSYM/
 /Debug
-/*.user
-/*.opensdf
-/*.sdf
-/*.sln
-/*.suo
+*.user
+*.opensdf
+*.sdf
+*.sln
+*.suo
 *.vcxproj
-/*.vcxproj
+*.vcxproj
