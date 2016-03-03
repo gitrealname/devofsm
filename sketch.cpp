@@ -1,4 +1,4 @@
-#define OFSM_CONFIG_DEBUG_LEVEL 2
+#define OFSM_CONFIG_DEBUG_LEVEL 4
 #define OFSM_CONFIG_PC_SIMULATION
 #define OFSM_CONFIG_PC_SIMULATION_SLEEP_BETWEEN_EVENTS_MS 500
 #define OFSM_CONFIG_TAKE_NEW_TIME_SNAPSHOT_FOR_EACH_GROUP
@@ -86,15 +86,14 @@ struct OFSMSimulationStatusReport {
     unsigned long fsmScheduledWakeupTime;
     uint8_t fsmCurrentState;
 };
-
+#ifdef _OFSM_IMPL_SIMULATION_STATUS_REPORT_PRINTER
 void _ofsm_simulation_status_report_printer(OFSMSimulationStatusReport *r) {
 	char buf[80];
-	sprintf_s(buf, (sizeof(buf) / sizeof(*buf)), "-O[%c%c%c,%ui]-G(%i)[%c,%i]-F(%i)[%c%c%c%c,%ui]-S(%i)" 
+	sprintf_s(buf, (sizeof(buf) / sizeof(*buf)), "-O[%c%c%c]-G(%i)[%c,%03d]-F(%i)[%c%c%c%c]-S(%i)-T[O:%010lu,F:%010lu]" 
 		//OFSM
 		, (r->ofsmInfiniteSleep ? 'I' : 'i')
 		, (r->ofsmTimerOverflow ? 'T' : 't')
 		, (r->ofsmScheduledTimeOverflow ? 'S' : 's')
-		, r->ofsmScheduledWakeupTime
 		//Group
 		, r->grpIndex
 		, (r->grpEventBufferOverflow ? 'B' :  'b')
@@ -105,13 +104,15 @@ void _ofsm_simulation_status_report_printer(OFSMSimulationStatusReport *r) {
 		, (r->fsmTransitionPrevented ? 'P' : 'p')
 		, (r->fsmTransitionStateOverriden ? 'O' : 'o')
 		, (r->fsmScheduledTimeOverflow ? 'S' : 's')
-		, r->fsmScheduledWakeupTime
 		//Current State
 		, r->fsmCurrentState
+        //wakeup-time
+   		, r->ofsmScheduledWakeupTime
+		, r->fsmScheduledWakeupTime
 	);
 	std::cout << buf << std::endl;
 }
-
+#endif
 
 void _ofsm_simulation_create_status_report(OFSMSimulationStatusReport *r, uint8_t groupIndex, uint8_t fsmIndex) {
     OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
@@ -134,10 +135,14 @@ void _ofsm_simulation_create_status_report(OFSMSimulationStatusReport *r, uint8_
 		}
 		else {
 			if (r->grpEventBufferOverflow && (grp->currentEventIndex == grp->nextEventIndex)) {
-					r->grpPendingEventCount = grp->eventQueueSize;
+				if(grp->currentEventIndex == grp->nextEventIndex) {
+                    r->grpPendingEventCount = grp->eventQueueSize;
+                } else {
+                    r->grpPendingEventCount = grp->eventQueueSize - (grp->currentEventIndex - grp->nextEventIndex);
+                }
 			}
 			else {
-				r->grpPendingEventCount = grp->eventQueueSize - (grp->currentEventIndex - grp->nextEventIndex);
+				r->grpPendingEventCount = 0;
 			}
 		}
         //FSM
@@ -154,8 +159,6 @@ void _ofsm_simulation_create_status_report(OFSMSimulationStatusReport *r, uint8_
 		}
     }
 }
-/ TODO: update doc about and code with printer logic //TBI
-#define OFSM_CONFIG_SIMULATION_CUSTOM_STATUS_REPORT_PRINTER _ofsm_simulation_status_report_printer
 void _ofsm_simulation_event_generator() {
 	std::string line;
 	while (!std::cin.eof())
@@ -191,7 +194,7 @@ void _ofsm_simulation_event_generator() {
 
 		//if line starts with digit, assume shorthand of 'queue' command: eventCode[,eventData[,groupIndex]]
 		std::string digits = "0123456789";
-		if (0 <= digits.find(tokens[0][0])) {
+		if (std::string::npos != digits.find(tokens[0])) {
 			tokens.push_front("queue");
 		}
 
@@ -229,8 +232,8 @@ void _ofsm_simulation_event_generator() {
             bool forceNew = false;
             if(tCount > 1) {
                 t = tokens[1];
-                isGlobal = 0 <= t.find("g");
-                forceNew = 0 <= t.find("f");
+                isGlobal = std::string::npos != t.find("g");
+                forceNew = std::string::npos != t.find("f");
                 if(isGlobal || forceNew) {
                     eventCodeIndex = 2;
                 }
@@ -289,7 +292,7 @@ void _ofsm_simulation_event_generator() {
             }
             _ofsm_simulation_create_status_report(&report, groupIndex, fsmIndex);
 
-			OFSM_CONFIG_SIMULATION_CUSTOM_STATUS_REPORT_PRINTER(&report);
+			OFSM_CONFIG_CUSTOM_PC_SIMULATION_CUSTOM_STATUS_REPORT_PRINTER(&report);
 		}
 		else {
 #if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 0

@@ -160,6 +160,7 @@ CUSTOMIZATION
 #define OFSM_CONFIG_CUSTOM_WAKEUP_FUNC _ofsm_wakeup                             //typedef: void _ofsm_wakeup().
 #define OFSM_CONFIG_CUSTOM_INIT_HEARTBEAT_PROVIDER_FUNC _ofsm_piggyback_timer_0 //typedef: void _ofsm_piggyback_timer_0(). Function: expected to call: ofsm_hearbeat(unsigned long currentTicktime)
 #define OFSM_CONFIG_CUSTOM_PC_SIMULATION_EVENT_GENERATOR_FUNC _ofsm_simulation_event_generator //typedef: void _ofsm_simulation_event_generator(). Function: expected to call: ofsm_hearbeat(unsigned long currentTicktime)
+#define OFSM_CONFIG_CUSTOM_PC_SIMULATION_CUSTOM_STATUS_REPORT_PRINTER _ofsm_simulation_status_report_printer // typedef: void custom_func(OFSMSimulationStatusReport *r)
 
 PC SIMULATION
 =============
@@ -288,6 +289,8 @@ Simulation defines
 #include <mutex>
 #include <condition_variable>
 
+struct OFSMSimulationStatusReport;
+
 /*DEBUG should be turned on during simulation*/
 #ifndef OFSM_CONFIG_DEBUG_LEVEL
 #	define OFSM_CONFIG_DEBUG_LEVEL 0
@@ -348,6 +351,12 @@ Simulation defines
 
 #ifndef OFSM_CONFIG_PC_SIMULATION_SLEEP_BETWEEN_EVENTS_MS
 #	define OFSM_CONFIG_PC_SIMULATION_SLEEP_BETWEEN_EVENTS_MS 0
+#endif
+
+#ifndef OFSM_CONFIG_CUSTOM_PC_SIMULATION_CUSTOM_STATUS_REPORT_PRINTER
+	void _ofsm_simulation_status_report_printer(OFSMSimulationStatusReport* r);
+#   define OFSM_CONFIG_CUSTOM_PC_SIMULATION_CUSTOM_STATUS_REPORT_PRINTER _ofsm_simulation_status_report_printer
+#   define _OFSM_IMPL_SIMULATION_STATUS_REPORT_PRINTER
 #endif
 
 #else /*is not OFSM_CONFIG_PC_SIMULATION*/
