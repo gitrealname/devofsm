@@ -68,39 +68,94 @@ static inline std::string &trim(std::string &s) {
 }
 
 struct OFSMSimulationStatusReport {
-    uint8_t groupIndex;
+    uint8_t grpIndex;
     uint8_t fsmIndex;
     //OFSM status
     bool ofsmInfiniteSleep;
     bool ofsmTimerOverflow;
     bool ofsmScheduledTimeOverflow;
-    unsigned long scheduledWakeupTime;
+    unsigned long ofsmScheduledWakeupTime;
     //Group status
     bool grpEventBufferOverflow;
-    uint8_t pendingEventCount;
+    uint8_t grpPendingEventCount;
     //FSM status
-    bool fsmTransitionPrevented;
+	bool fsmInfiniteSleep;
+	bool fsmTransitionPrevented;
     bool fsmTransitionStateOverriden;
     bool fsmScheduledTimeOverflow;
     unsigned long fsmScheduledWakeupTime;
     uint8_t fsmCurrentState;
 };
 
-void _ofsm_simulation_create_status_report(OFSMSimulationStatusReport *r, uint8_t groupIndex, uint8_t fsmIndex) {
-    OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
-        r->groupIndex = groupIndex;
-        r->fsmIndex = fsmIndex;
-        //OFSM
-        r->ofsmInfiniteSleep = (bool)(_ofsmFlags & _OFSM_FLAG_INFINITE_SLEEP);
-        r->ofsmTimerOverflow = (bool)(_ofsmFlags & _OFSM_FLAG_OFSM_TIMER_OVERFLOW);
-        r->ofsmScheduledTimeOverflow = (bool)(_ofsmFlags & _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW);
-        r->scheduledWakeupTime = _ofsmWakeupTime;
-        //Group
-
-        //FSM
-    }
+void _ofsm_simulation_status_report_printer(OFSMSimulationStatusReport *r) {
+	char buf[80];
+	sprintf_s(buf, (sizeof(buf) / sizeof(*buf)), "-O[%c%c%c,%ui]-G(%i)[%c,%i]-F(%i)[%c%c%c%c,%ui]-S(%i)" 
+		//OFSM
+		, (r->ofsmInfiniteSleep ? 'I' : 'i')
+		, (r->ofsmTimerOverflow ? 'T' : 't')
+		, (r->ofsmScheduledTimeOverflow ? 'S' : 's')
+		, r->ofsmScheduledWakeupTime
+		//Group
+		, r->grpIndex
+		, (r->grpEventBufferOverflow ? 'B' :  'b')
+		, (r->grpPendingEventCount)
+		//Fsm
+		, r->fsmIndex
+		, (r->fsmInfiniteSleep ? 'I' : 'i')
+		, (r->fsmTransitionPrevented ? 'P' : 'p')
+		, (r->fsmTransitionStateOverriden ? 'O' : 'o')
+		, (r->fsmScheduledTimeOverflow ? 'S' : 's')
+		, r->fsmScheduledWakeupTime
+		//Current State
+		, r->fsmCurrentState
+	);
+	std::cout << buf << std::endl;
 }
 
+
+void _ofsm_simulation_create_status_report(OFSMSimulationStatusReport *r, uint8_t groupIndex, uint8_t fsmIndex) {
+    OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
+        r->grpIndex = groupIndex;
+        r->fsmIndex = fsmIndex;
+        //OFSM
+        r->ofsmInfiniteSleep = (bool)((_ofsmFlags & _OFSM_FLAG_INFINITE_SLEEP) > 0);
+        r->ofsmTimerOverflow = (bool)((_ofsmFlags & _OFSM_FLAG_OFSM_TIMER_OVERFLOW) > 0);
+        r->ofsmScheduledTimeOverflow = (bool)((_ofsmFlags & _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW) > 0);
+        r->ofsmScheduledWakeupTime = _ofsmWakeupTime;
+		if (r->ofsmInfiniteSleep) {
+			r->ofsmScheduledWakeupTime = 0;
+			r->ofsmScheduledTimeOverflow = 0;
+		}
+        //Group
+		OFSMGroup *grp = (_ofsmGroups[groupIndex]);
+		r->grpEventBufferOverflow = (bool)((grp->flags & _OFSM_FLAG_INFINITE_SLEEP) > 0);
+		if (grp->nextEventIndex > grp->currentEventIndex) {
+			r->grpPendingEventCount = grp->nextEventIndex - grp->currentEventIndex;
+		}
+		else {
+			if (r->grpEventBufferOverflow && (grp->currentEventIndex == grp->nextEventIndex)) {
+					r->grpPendingEventCount = grp->eventQueueSize;
+			}
+			else {
+				r->grpPendingEventCount = grp->eventQueueSize - (grp->currentEventIndex - grp->nextEventIndex);
+			}
+		}
+        //FSM
+		OFSM *fsm = (grp->fsms)[fsmIndex];
+		r->fsmInfiniteSleep = (bool)((fsm->flags & _OFSM_FLAG_INFINITE_SLEEP) > 0);
+		r->fsmTransitionPrevented = (bool)((fsm->flags & _OFSM_FLAG_FSM_PREVENT_TRANSITION) > 0);
+		r->fsmTransitionStateOverriden = (bool)((fsm->flags & _OFSM_FLAG_FSM_NEXT_STATE_OVERRIDE) > 0);
+		r->fsmScheduledTimeOverflow = (bool)((fsm->flags & _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW) > 0);
+		r->fsmScheduledWakeupTime = fsm->wakeupTime;
+		r->fsmCurrentState = fsm->currentState;
+		if (r->fsmInfiniteSleep) {
+			r->fsmScheduledWakeupTime = 0;
+			r->fsmScheduledTimeOverflow = 0;
+		}
+    }
+}
+/ TODO: update doc about and code with printer logic //TBI
+#define OFSM_CONFIG_SIMULATION_CUSTOM_STATUS_REPORT_PRINTER _ofsm_simulation_status_report_printer
 void _ofsm_simulation_event_generator() {
 	std::string line;
 	while (!std::cin.eof())
@@ -120,7 +175,7 @@ void _ofsm_simulation_event_generator() {
 		//prepare for parsing
 		std::stringstream strStream(line);
 		std::string t;
-		std::vector<std::string> tokens;
+		std::deque<std::string> tokens;
 
 		//parse by tokens 
 		while (std::getline(strStream, t, ',')) {
@@ -134,10 +189,16 @@ void _ofsm_simulation_event_generator() {
 			continue;
 		}
 
+		//if line starts with digit, assume shorthand of 'queue' command: eventCode[,eventData[,groupIndex]]
+		std::string digits = "0123456789";
+		if (0 <= digits.find(tokens[0][0])) {
+			tokens.push_front("queue");
+		}
 
-        t = tokens[0];
-        uint8_t tCount = (uint8_t)tokens.size();
 		//parse command
+		t = tokens[0];
+        uint8_t tCount = (uint8_t)tokens.size();
+
 		if (0 == t.find("e")) {				//e[xit]
 #if OFSM_CONFIG_DEBUG_LEVEL_OFSM> 3
 			ofsm_debug_printf("EG: Exiting...\n");
@@ -228,78 +289,15 @@ void _ofsm_simulation_event_generator() {
             }
             _ofsm_simulation_create_status_report(&report, groupIndex, fsmIndex);
 
-            OFSM_CONFIG_SIMULATION_CUSTOM_STATUS_REPORT_PRINTER(&report)
+			OFSM_CONFIG_SIMULATION_CUSTOM_STATUS_REPORT_PRINTER(&report);
 		}
-		else {                              //start with digit, assume 'queue'
-			int eventCode = atoi(t.c_str());
-			if (eventCode == 0 && t != "0") { //invalid input
+		else {
 #if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 0
 				ofsm_debug_printf("EG: Invalid command: %s. Ignored.\n", line.c_str());
 #endif
 				continue;
 			}
 		}
-
-
-
-		std::string eventCodeStr;
-		//int eventCode = 0;
-		//int eventData = 0;
-		std::string targetStr = "0";
-		uint8_t eventTargetGroup = 0;
-		bool forceNewEvent = false;
-
-		//get components
-		switch (tokens.size()) {
-		case 3:
-			targetStr = tokens[2];
-			eventTargetGroup = atoi(targetStr.c_str());
-		case 2:
-			eventData = atoi(tokens[1].c_str());
-		case 1:
-			t = tokens[0];
-			if (std::string::npos != t.find("exit")) {
-#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 3
-				ofsm_debug_printf("EG: Exiting...\n");
-#endif
-				return;
-			}
-			if (std::string::npos != t.find("sleep")) {
-				if (tokens.size() == 1) {
-					eventData = 1000;
-				}
-#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 3
-				ofsm_debug_printf("EG: Entering sleep for %i milliseconds...\n", eventData);
-#endif
-				_ofsm_simulation_sleep(eventData);
-				continue;
-			}
-			if (t[0] == 'f') {
-				forceNewEvent = true;
-				t = t.substr(1);
-			}
-			eventCode = atoi(t.c_str());
-			break;
-		default:
-			continue; //skip empty lines
-		}
-
-		if (std::string::npos != targetStr.find("g")) {
-#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 3 
-			ofsm_debug_printf("EG: Queuing eventCode: %i eventData: %i GLOBAL (force new event: %i)...\n", eventCode, eventData, forceNewEvent);
-#endif
-			ofsm_queue_global_event(forceNewEvent, eventCode, eventData);
-		}
-		else {
-#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 3
-			ofsm_debug_printf("EG: Queuing eventCode: %i eventData: %i; group %i (force new event: %i)...\n", eventCode, eventData, eventTargetGroup, forceNewEvent);
-#endif
-			ofsm_queue_group_event(eventTargetGroup, forceNewEvent, eventCode, eventData);
-		}
-#if OFSM_CONFIG_PC_SIMULATION_SLEEP_BETWEEN_EVENTS_MS > 0 
-		_ofsm_simulation_sleep(OFSM_CONFIG_PC_SIMULATION_SLEEP_BETWEEN_EVENTS_MS);
-#endif
-	}
 }
 
 void setup() {
