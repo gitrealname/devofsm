@@ -70,6 +70,7 @@ static inline std::string &trim(std::string &s) {
 struct OFSMSimulationStatusReport {
     uint8_t grpIndex;
     uint8_t fsmIndex;
+	unsigned long ofsmTime;
     //OFSM status
     bool ofsmInfiniteSleep;
     bool ofsmTimerOverflow;
@@ -89,27 +90,28 @@ struct OFSMSimulationStatusReport {
 #ifdef _OFSM_IMPL_SIMULATION_STATUS_REPORT_PRINTER
 void _ofsm_simulation_status_report_printer(OFSMSimulationStatusReport *r) {
 	char buf[80];
-	sprintf_s(buf, (sizeof(buf) / sizeof(*buf)), "-O[%c%c%c]-G(%i)[%c,%03d]-F(%i)[%c%c%c%c]-S(%i)-T[O:%010lu,F:%010lu]" 
-		//OFSM
+	sprintf_s(buf, (sizeof(buf) / sizeof(*buf)), "-O[%c]-G(%i)[%c,%03d]-F(%i)[%c%c%c]-S(%i)-TW[%010lu%c,O:%010lu%c,F:%010lu%c]" 
+		//OFSM (-O)
 		, (r->ofsmInfiniteSleep ? 'I' : 'i')
-		, (r->ofsmTimerOverflow ? 'T' : 't')
-		, (r->ofsmScheduledTimeOverflow ? 'S' : 's')
-		//Group
+		//Group (-G)
 		, r->grpIndex
 		, (r->grpEventBufferOverflow ? 'B' :  'b')
 		, (r->grpPendingEventCount)
-		//Fsm
+		//Fsm (-F)
 		, r->fsmIndex
 		, (r->fsmInfiniteSleep ? 'I' : 'i')
 		, (r->fsmTransitionPrevented ? 'P' : 'p')
-		, (r->fsmTransitionStateOverriden ? 'O' : 'o')
-		, (r->fsmScheduledTimeOverflow ? 'S' : 's')
-		//Current State
+		, (r->fsmTransitionStateOverriden ? '!' : '.')
+		//Current State (-S)
 		, r->fsmCurrentState
-        //wakeup-time
-   		, r->ofsmScheduledWakeupTime
+        //CurrentTime, Wakeup time (-TW)
+		, r->ofsmTime
+		, (r->ofsmTimerOverflow ? '!' : '.')
+		, r->ofsmScheduledWakeupTime
+		, (r->ofsmScheduledTimeOverflow ? '!' : '.')
 		, r->fsmScheduledWakeupTime
-	);
+		, (r->fsmScheduledTimeOverflow ? '!' : '.')
+		);
 	std::cout << buf << std::endl;
 }
 #endif
@@ -118,6 +120,7 @@ void _ofsm_simulation_create_status_report(OFSMSimulationStatusReport *r, uint8_
     OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
         r->grpIndex = groupIndex;
         r->fsmIndex = fsmIndex;
+		r->ofsmTime = _ofsmTime;
         //OFSM
         r->ofsmInfiniteSleep = (bool)((_ofsmFlags & _OFSM_FLAG_INFINITE_SLEEP) > 0);
         r->ofsmTimerOverflow = (bool)((_ofsmFlags & _OFSM_FLAG_OFSM_TIMER_OVERFLOW) > 0);
@@ -159,6 +162,7 @@ void _ofsm_simulation_create_status_report(OFSMSimulationStatusReport *r, uint8_
 		}
     }
 }
+TBI: implementation of OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE
 void _ofsm_simulation_event_generator() {
 	std::string line;
 	while (!std::cin.eof())
@@ -267,12 +271,11 @@ void _ofsm_simulation_event_generator() {
             unsigned long currentTime;
             if(tCount > 1) {
                 t = tokens[1];
-                unsigned long time = atoi(t.c_str());
+                currentTime = atoi(t.c_str());
             } else {
                 OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
-                    currentTime = _ofsmTime;
+                    currentTime = _ofsmTime + 1;
                 }
-                currentTime++;
             }
             ofsm_heartbeat(currentTime);
 		}

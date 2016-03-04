@@ -147,11 +147,12 @@ OFSM can be "shaped" in many different ways using configuration switches. NOTE: 
 #define OFSM_CONFIG_EVENT_DATA_TYPE uint8_t                     //Default uint8_t (8 bits). Event data type.
 #define OFSM_CONFIG_SLEEP_MODE SLEEP_MODE_PWR_DOWN              //Default: SLEEP_MODE_PWR_DOWN, see ( <avr/sleep.h> for more options)
 #define OFSM_CONFIG_DEBUG_PRINT_ADD_TIMESTAMP                   //Default undefined. When defined ofsm_debug_print() it will prefix debug messages with [<current time in ticks>]<debug message>.
-#define OFSM_CONFIG_PC_SIMULATION                               //Default undefined. See PC SIMULATION section for additional info
-#define OFSM_CONFIG_PC_SIMULATION_TICK_MS 1000                  //Default 1000 milliseconds in one tick.
-#define OFSM_CONFIG_PC_SIMULATION_SLEEP_BETWEEN_EVENTS_MS 0     //default 0. Sleep period (in milliseconds) before reading new simulation event. May be helpful in batch processing mode.
 #define OFSM_CONFIG_ATOMIC_BLOCK ATOMIC_BLOCK                   //Default: ATOMIC_BLOCK; Retail compatibility with original: see implementation details in <util/atomic.h> from AVR SDK.
 #define OFSM_CONFIG_ATOMIC_RESTORESTATE ATOMIC_RESTORESTATE     //Default: ATOMIC_RESTORESTATE see <util/atomic.h>
+#define OFSM_CONFIG_PC_SIMULATION                               //Default undefined. See PC SIMULATION section for additional info
+#define OFSM_CONFIG_PC_SIMULATION_TICK_MS 1000                  //Default 1000 milliseconds in one tick.
+#define OFSM_CONFIG_PC_SIMULATION_SLEEP_BETWEEN_EVENTS_MS 0     //Default 0. Sleep period (in milliseconds) before reading new simulation event. May be helpful in batch processing mode.
+#define OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE					//Default undefined, When defined heartbeen is manually invoked. see PC SIMULATION SCRIPT MODE for details.
 
 CUSTOMIZATION
 =============
@@ -180,21 +181,44 @@ To do that skatch code should follow the following rules:
 
 PC SIMULATION EVENT GENERATOR
 =============================
-Event generator is implemented as infinite loop which reads event even information for stdin and queues it in OFSM.
-Input Format is: ['f']<event code or command>[,<event data>[,<designated group index>] ([] - denotes optional parameters).
-event command can be prefixed with 'f' to indicate that event needs to be forced (see queue_event api for explanations). By default event will replace the same event on the top of the queue.
-<event code or command> - numeric event code or word 'exit' (to exit simulation) or 'sleep' (to put generator to sleep for number of milliseconds).
-sleep is not needed when event generator works in interactive mode as it is naturally sleeps while awaiting users input, but may be important in batch mode (see below).
-<event data> - (optional) number representing event data (default is 0) or number of milliseconds in case of 'sleep' (default 1000 (one second)).
-<designated group index> - (optional) group index for which event should be queued (default is 0), or letter 'g' to queue global event (to all groups)
-Examples of input:
-* 1  //queue event 1 data 0 into group 0
-* 1,200,1 //queue event 1 data 200 into group 1
-* sleep,10000 //sleep for 10 seconds before accepting new input)
-* exit //terminate simulation
+Event generator is implemented as infinite loop which reads event information for the input and queues it in OFSM.
+Simulation command format: <command>,<parameters> //Value surrounded by '[]' denotes optional part(s).
+* e[exit] - exit simulation; 
+* s[leep][,<sleep_milliseconds>] - forces event generator to sleep for <sleep_milliseconds> before reading next command; default sleep is 1000 milliseconds.
+	-Example:
+		1) sleep,2000	//sleep for 2 seconds
+		2) s,2000		// the same as above
+* q[ueue][,<modifiers>][,<event code>[,<event data>[,<group index>]]] - queue <event code> into OFSM.
+	-<modifiers> - (optional) either 'g' or 'f' or both; where: 'g' - if specified causes event to be queued for all groups (global event), 'f' - forces new event vs. possible replacement of previously queued
+	-Examples:
+		1) queue,g,0,0,1  //queue global event code 0 event data 0 into all groups;
+		2) q,1			  //queue event code 1 event data 0 into group 0;
+		3) q,f,2,1,1      //queue event code 2 event data 1 into group 1, force new event flag is set.
+* h[eartbeat][,<current time (in ticks)>] // calls OFSM heartbeat with specified time; see also PC SIMULATION SCRIPT MODE;
+	-Examples:
+		1) heartbeat,1000  //ping OFSM and set current OFSM time to 1000 ticks
+		2) h,1000		   //same as above
+* r[eport][,<group index>[,<fsm index>] // prints out report about current state of specified FSM, if not specified <group index> and <fsm index> assumed to be 0
+	- see PC SIMULATION REPORT FORMAT for details about produced output.
 
-Simulation can also be performed in batch mode. In which case user simply writes sequence of events into text file and pipes it into the sketch executable, example:
-* myscketch < events.txt
+PC SIMULATION SCRIPT MODE
+=========================
+* By default (OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE is undefined). simulation process runs three threads: 
+		1) FSM thread: where FSM is running it's loop
+		2) Timer thread: this thread is running timer which periodically call heartbeat to supply time into OFSM and wakes up OFSM in case of Timeout.
+		3) Main thread: used by event generator.
+	Such a mode allows dynamic/interactive testing of the OFSM.
+* Script Mode can be used for thorough state machine logic testing. In this mode everything runs in single thread;
+	Heartbeat is expected to be explicitly called from the script (see heartbeat command), that allows to setup precise test scenarios with predetermined outcome 
+	and creation of repeatable test cases. 
+*There are couple of ways to supply data for Script mode:
+	1) piping input data into simulated sketch executable (example: mysketch < TestScript.txt)
+	2) or by specifying -f <script file> command line option. (example: mysketch -f TestScript.txt) //TBI:
+
+PC SIMULATION REPORT FORMAT
+===========================
+see implementation of _ofsm_simulation_create_status_report() and _ofsm_simulation_status_report_printer() below for details.
+
 
 LIMITATIONS
 ============
@@ -433,14 +457,14 @@ struct OFSMState {
 };
 
 struct OFSMGroup {
-	OFSM**              fsms;
-	uint8_t             groupSize;
-	OFSMEventData*      eventQueue;
-	uint8_t             eventQueueSize;
+	OFSM**					fsms;
+	uint8_t					groupSize;
+	OFSMEventData*			eventQueue;
+	uint8_t					eventQueueSize;
 
-	volatile uint8_t    flags; 
-	volatile uint8_t    nextEventIndex; //queue cell index that is available for new event
-	volatile uint8_t    currentEventIndex; //queue cell that is being processed by ofsm
+	volatile uint8_t		flags; 
+	volatile uint8_t		nextEventIndex; //queue cell index that is available for new event
+	volatile uint8_t		currentEventIndex; //queue cell that is being processed by ofsm
 };
 
 /*defined typedef void(*OFSMHandler)(OFSMState *fsmState);*/
@@ -465,6 +489,7 @@ Flags
 #define _OFSM_FLAG_OFSM_EVENT_QUEUED	0x10
 #define _OFSM_FLAG_OFSM_TIMER_OVERFLOW	0x20 
 #define _OFSM_FLAG_OFSM_INTERRUPT_INFINITE_SLEEP_ON_TIMEOUT	0x40 /*used at startup to allow queued timeout event to wakeup FSM*/
+#define _OFSM_FLAG_OFSM_SIMULATION_EXIT		0x100
 
 /*------------------------------------------------
 Macros
@@ -501,7 +526,7 @@ Macros
 /*--------------------------------------
 Implementation
 ----------------------------------------*/
-OFSMGroup**             _ofsmGroups;
+OFSMGroup**				_ofsmGroups;
 uint8_t                 _ofsmGroupCount;
 volatile uint8_t        _ofsmFlags;
 volatile unsigned long  _ofsmWakeupTime;
@@ -579,7 +604,7 @@ static void inline _ofsm_fsm_process_event(OFSM *fsm, uint8_t groupIndex, uint8_
 	
 	//check if error was reported, restore original FSM state
 	if (fsm->flags & _OFSM_FLAG_FSM_PREVENT_TRANSITION) {
-		fsm->flags = oldFlags;
+		fsm->flags = oldFlags | _OFSM_FLAG_FSM_PREVENT_TRANSITION;
 		fsm->wakeupTime = oldWakeupTime;
 #if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 2
 		ofsm_debug_printf("G(%i)F(%i): Handler requested no transition. FSM state was restored.\n", groupIndex, fsmIndex);
@@ -709,6 +734,11 @@ void _ofsm_start() {
 		OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
 			_ofsmFlags |= _OFSM_FLAG_INFINITE_SLEEP; //prevents _ofsm_check_timeout() to ever accessing _ofsmWakeupTime and queue timeout while in process
 			_ofsmFlags &= ~_OFSM_FLAG_OFSM_EVENT_QUEUED; //reset event queued flag
+#ifdef OFSM_CONFIG_PC_SIMULATION
+			if (_ofsmFlags &_OFSM_FLAG_OFSM_SIMULATION_EXIT) {
+				return;
+			}
+#endif
 		}
 
 		andedFsmFlags = (uint8_t)0xFFFF;
@@ -1065,6 +1095,18 @@ void _ofsm_simulation_heartbeat_provider_thread(int tickSize) {
 	unsigned long currentTime = 0;
 	while (1) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(tickSize));
+		
+		OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
+			unsigned long time;
+			uint8_t flags;
+			ofsm_get_time(time, flags);
+			if (time > currentTime) {
+				currentTime = time;
+			}
+			if (_ofsmFlags & _OFSM_FLAG_OFSM_SIMULATION_EXIT) {
+				return;
+			}
+		}
 		currentTime++;
 		ofsm_heartbeat(currentTime);
 	}
@@ -1082,6 +1124,14 @@ int main(int argc, char* argv[])
 
 	//call event generator
 	OFSM_CONFIG_CUSTOM_PC_SIMULATION_EVENT_GENERATOR_FUNC();
+
+	//if returned assume exit
+	OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
+		_ofsmFlags |= _OFSM_FLAG_OFSM_SIMULATION_EXIT;
+		OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
+	}
+	_ofsm_simulation_sleep(200);
+	
 	return 0;
 }
 
