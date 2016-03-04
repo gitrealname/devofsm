@@ -105,7 +105,6 @@ INITIALIZATION AND START API
   2) ofsm_queue... API calls can be used right before OFSM_LOOP() to queue desired events. Including TIMEOUT event.
   NOTE: TIMEOUT event doesn't wake FSM that is in INFINITE_TIMEOUT by default. But it will do it once if event was queued before OFSM_LOOP().
 
-
 INTERRUPT HANDLERS API
 ======================
 Interrupt handlers are expected to care only about the following functions:
@@ -114,6 +113,7 @@ Interrupt handlers are expected to care only about the following functions:
 
 FSM EVENT HANDLERS API
 ======================
+TBI: update list!!!
 * fsm_prevent_transition(OFSM *fsm)
 * fsm_set_transition_delay(OFSM *fsm, unsigned long delayTicks)
 * fsm_set_inifinite_delay(OFSM *fsm)
@@ -151,8 +151,9 @@ OFSM can be "shaped" in many different ways using configuration switches. NOTE: 
 #define OFSM_CONFIG_ATOMIC_RESTORESTATE ATOMIC_RESTORESTATE     //Default: ATOMIC_RESTORESTATE see <util/atomic.h>
 #define OFSM_CONFIG_PC_SIMULATION                               //Default undefined. See PC SIMULATION section for additional info
 #define OFSM_CONFIG_PC_SIMULATION_TICK_MS 1000                  //Default 1000 milliseconds in one tick.
-#define OFSM_CONFIG_PC_SIMULATION_SLEEP_BETWEEN_EVENTS_MS 0     //Default 0. Sleep period (in milliseconds) before reading new simulation event. May be helpful in batch processing mode.
-#define OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE					//Default undefined, When defined heartbeen is manually invoked. see PC SIMULATION SCRIPT MODE for details.
+#define OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE_SLEEP_BETWEEN_EVENTS_MS 0     //Default 0. Sleep period (in milliseconds) before reading new simulation event. May be helpful in batch processing mode.
+#define OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE					//Default undefined, When defined heartbeat is manually invoked. see PC SIMULATION SCRIPT MODE for details.
+#define OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE 0 //Default: 0 - (wakeup when queued); Other values: 1 - (wakeup explicitly by 'w[akeup]' command and timeout via 'h[eartbeat] command); 2 - (wakeup only by 'w[akeup]')
 
 CUSTOMIZATION
 =============
@@ -161,7 +162,7 @@ CUSTOMIZATION
 #define OFSM_CONFIG_CUSTOM_WAKEUP_FUNC _ofsm_wakeup                             //typedef: void _ofsm_wakeup().
 #define OFSM_CONFIG_CUSTOM_INIT_HEARTBEAT_PROVIDER_FUNC _ofsm_piggyback_timer_0 //typedef: void _ofsm_piggyback_timer_0(). Function: expected to call: ofsm_hearbeat(unsigned long currentTicktime)
 #define OFSM_CONFIG_CUSTOM_PC_SIMULATION_EVENT_GENERATOR_FUNC _ofsm_simulation_event_generator //typedef: void _ofsm_simulation_event_generator(). Function: expected to call: ofsm_hearbeat(unsigned long currentTicktime)
-#define OFSM_CONFIG_CUSTOM_PC_SIMULATION_CUSTOM_STATUS_REPORT_PRINTER _ofsm_simulation_status_report_printer // typedef: void custom_func(OFSMSimulationStatusReport *r)
+#define OFSM_CONFIG_CUSTOM_PC_SIMULATION_CUSTOM_STATUS_REPORT_PRINTER_FUNC _ofsm_simulation_status_report_printer // typedef: void custom_func(OFSMSimulationStatusReport *r)
 
 PC SIMULATION
 =============
@@ -199,6 +200,8 @@ Simulation command format: <command>,<parameters> //Value surrounded by '[]' den
 		1) heartbeat,1000  //ping OFSM and set current OFSM time to 1000 ticks
 		2) h,1000		   //same as above
 * r[eport][,<group index>[,<fsm index>] // prints out report about current state of specified FSM, if not specified <group index> and <fsm index> assumed to be 0
+	- see PC SIMULATION REPORT FORMAT for details about produced output.
+* w[akup]    // explicitly wakeup OFSM; ignored unless OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE > 0
 	- see PC SIMULATION REPORT FORMAT for details about produced output.
 
 PC SIMULATION SCRIPT MODE
@@ -332,6 +335,10 @@ struct OFSMSimulationStatusReport;
 #	define OFSM_CONFIG_PC_SIMULATION_TICK_MS 1000
 #endif
 
+#ifndef OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE
+#   define OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE 0
+#endif
+
 #ifndef OFSM_CONFIG_CUSTOM_PC_SIMULATION_EVENT_GENERATOR_FUNC
 	void _ofsm_simulation_event_generator();
 #	define OFSM_CONFIG_CUSTOM_PC_SIMULATION_EVENT_GENERATOR_FUNC _ofsm_simulation_event_generator
@@ -377,13 +384,15 @@ struct OFSMSimulationStatusReport;
 #	define OFSM_CONFIG_PC_SIMULATION_SLEEP_BETWEEN_EVENTS_MS 0
 #endif
 
-#ifndef OFSM_CONFIG_CUSTOM_PC_SIMULATION_CUSTOM_STATUS_REPORT_PRINTER
+#ifndef OFSM_CONFIG_CUSTOM_PC_SIMULATION_CUSTOM_STATUS_REPORT_PRINTER_FUNC
 	void _ofsm_simulation_status_report_printer(OFSMSimulationStatusReport* r);
-#   define OFSM_CONFIG_CUSTOM_PC_SIMULATION_CUSTOM_STATUS_REPORT_PRINTER _ofsm_simulation_status_report_printer
+#   define OFSM_CONFIG_CUSTOM_PC_SIMULATION_CUSTOM_STATUS_REPORT_PRINTER_FUNC _ofsm_simulation_status_report_printer
 #   define _OFSM_IMPL_SIMULATION_STATUS_REPORT_PRINTER
 #endif
 
 #else /*is not OFSM_CONFIG_PC_SIMULATION*/
+#undef OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE
+#undef OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE
 
 #ifndef OFSM_CONFIG_CUSTOM_INIT_HEARTBEAT_PROVIDER_FUNC 
 #	define OFSM_CONFIG_CUSTOM_INIT_HEARTBEAT_PROVIDER_FUNC _ofsm_piggyback_timer_0
@@ -730,7 +739,12 @@ void _ofsm_start() {
 	uint8_t timeFlags;
 
 	//start main loop
-	while (1) {
+#ifndef OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE
+    while (1) 
+#else
+    do
+#endif
+    {
 		OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
 			_ofsmFlags |= _OFSM_FLAG_INFINITE_SLEEP; //prevents _ofsm_check_timeout() to ever accessing _ofsmWakeupTime and queue timeout while in process
 			_ofsmFlags &= ~_OFSM_FLAG_OFSM_EVENT_QUEUED; //reset event queued flag
@@ -790,15 +804,26 @@ void _ofsm_start() {
 			}
             _ofsmFlags &= ~_OFSM_FLAG_OFSM_INTERRUPT_INFINITE_SLEEP_ON_TIMEOUT;
 		}
-#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 3
+#ifndef OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE
+#   if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 3
 		ofsm_debug_printf("OFSM: Entering sleep... Wakeup Time %i.\n", _ofsmFlags & _OFSM_FLAG_INFINITE_SLEEP ? -1 : _ofsmWakeupTime);
-#endif
+#   endif
 		OFSM_CONFIG_CUSTOM_ENTER_SLEEP_FUNC();
 
-#if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 3
+#   if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 3
 		ofsm_debug_printf("OFSM: Waked up.\n");
+#   endif
+#else 
+#   if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 3
+		ofsm_debug_printf("OFSM: Step through OFSM is complete.\n");
+#   endif
 #endif
-	}
+	
+#ifndef OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE
+    } 
+#else
+    } while(0);
+#endif
 }
 
 static void inline _ofsm_check_timeout() __attribute__((__always_inline__))
@@ -817,7 +842,12 @@ static void inline _ofsm_check_timeout() __attribute__((__always_inline__))
 	if (_OFSM_TIME_A_GTE_B(_ofsmTime, (_ofsmFlags & _OFSM_FLAG_OFSM_TIMER_OVERFLOW), _ofsmWakeupTime, (_ofsmFlags & _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW))) {
 		ofsm_queue_global_event(false, 0, 0); //this call will wakeup main loop
 	}
-	/*	}*/
+#ifdef OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE
+#   if OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE == 1
+    OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
+#   endif
+#endif
+    /*	}*/
 }
 
 static void inline ofsm_heartbeat(unsigned long currentTime) __attribute__((__always_inline__))
@@ -893,7 +923,13 @@ void _ofsm_queue_group_event(uint8_t groupIndex, OFSMGroup *group, bool forceNew
 			}
 		}
 	}
-	OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
+#ifdef OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE
+#   if OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE == 0
+    OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
+#   endif
+#else
+    OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
+#endif
 
 #if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 0
 	if (!(debugFlags & 0x2) && debugFlags & 0x1) {
@@ -968,9 +1004,14 @@ void _ofsm_simulation_enter_sleep() {
 
 #ifdef _OFSM_IMPL_WAKEUP
 void _ofsm_simulation_wakeup() {
+#   ifndef OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE
     std::unique_lock<std::mutex> lk(cvm);
     lk.unlock();
     cv.notify_one();
+#   else 
+    //in script mode call _ofsm_start() directly; it will return
+    _ofsm_start();
+#   endif
 }
 #endif /* _OFSM_IMPL_WAKEUP */
 
@@ -1114,13 +1155,19 @@ void _ofsm_simulation_heartbeat_provider_thread(int tickSize) {
 
 int main(int argc, char* argv[])
 {
-	//start fsm thread
+#ifndef OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE
+    //start fsm thread
 	std::thread fsmThread(_ofsm_simulation_fsm_thread, 0);
 	fsmThread.detach();
 
-	//start timer thread
+    //start timer thread
 	std::thread heartbeatProviderThread(_ofsm_simulation_heartbeat_provider_thread, OFSM_CONFIG_PC_SIMULATION_TICK_MS);
 	heartbeatProviderThread.detach();
+#else 
+    //perform setup and make first iteration through the OFSM
+    _ofsm_simulation_fsm_thread(0);
+#endif
+
 
 	//call event generator
 	OFSM_CONFIG_CUSTOM_PC_SIMULATION_EVENT_GENERATOR_FUNC();

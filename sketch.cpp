@@ -4,6 +4,8 @@
 #define OFSM_CONFIG_TAKE_NEW_TIME_SNAPSHOT_FOR_EACH_GROUP
 #define OFSM_CONFIG_DEBUG_PRINT_ADD_TIMESTAMP
 #define OFSM_CONFIG_DEFAULT_STATE_TRANSITION_DELAY 5
+#define OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE
+#define OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE 1
 
 #include "Ofsm.h"
 
@@ -95,13 +97,13 @@ void _ofsm_simulation_status_report_printer(OFSMSimulationStatusReport *r) {
 		, (r->ofsmInfiniteSleep ? 'I' : 'i')
 		//Group (-G)
 		, r->grpIndex
-		, (r->grpEventBufferOverflow ? 'B' :  'b')
+		, (r->grpEventBufferOverflow ? '!' :  '.')
 		, (r->grpPendingEventCount)
 		//Fsm (-F)
 		, r->fsmIndex
 		, (r->fsmInfiniteSleep ? 'I' : 'i')
 		, (r->fsmTransitionPrevented ? 'P' : 'p')
-		, (r->fsmTransitionStateOverriden ? '!' : '.')
+		, (r->fsmTransitionStateOverriden ? 'O' : 'o')
 		//Current State (-S)
 		, r->fsmCurrentState
         //CurrentTime, Wakeup time (-TW)
@@ -162,7 +164,7 @@ void _ofsm_simulation_create_status_report(OFSMSimulationStatusReport *r, uint8_
 		}
     }
 }
-TBI: implementation of OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE
+//TBI: implementation of OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE
 void _ofsm_simulation_event_generator() {
 	std::string line;
 	while (!std::cin.eof())
@@ -211,6 +213,12 @@ void _ofsm_simulation_event_generator() {
 			ofsm_debug_printf("EG: Exiting...\n");
 #endif
 			return;
+		}
+		if (0 == t.find("w")) {				//w[akeup]
+#if OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE > 0
+            OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
+#endif
+            return;
 		}
 		else if (0 == t.find("s")) {		//s[leep][,sleepPeriod]
 			unsigned long sleepPeriod = 0;
@@ -295,7 +303,7 @@ void _ofsm_simulation_event_generator() {
             }
             _ofsm_simulation_create_status_report(&report, groupIndex, fsmIndex);
 
-			OFSM_CONFIG_CUSTOM_PC_SIMULATION_CUSTOM_STATUS_REPORT_PRINTER(&report);
+			OFSM_CONFIG_CUSTOM_PC_SIMULATION_CUSTOM_STATUS_REPORT_PRINTER_FUNC(&report);
 		}
 		else {
 #if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 0
@@ -303,6 +311,10 @@ void _ofsm_simulation_event_generator() {
 #endif
 				continue;
 			}
+#if OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE_SLEEP_BETWEEN_EVENTS_MS > 0
+        _ofsm_simulation_sleep(OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE_SLEEP_BETWEEN_EVENTS_MS);
+#endif
+
 		}
 }
 
