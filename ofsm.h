@@ -161,8 +161,9 @@ CUSTOMIZATION
 #define OFSM_CONFIG_CUSTOM_ENTER_SLEEP_FUNC _ofsm_enter_sleep                   //typedef: void _ofsm_enter_sleep().
 #define OFSM_CONFIG_CUSTOM_WAKEUP_FUNC _ofsm_wakeup                             //typedef: void _ofsm_wakeup().
 #define OFSM_CONFIG_CUSTOM_INIT_HEARTBEAT_PROVIDER_FUNC _ofsm_piggyback_timer_0 //typedef: void _ofsm_piggyback_timer_0(). Function: expected to call: ofsm_hearbeat(unsigned long currentTicktime)
-#define OFSM_CONFIG_CUSTOM_PC_SIMULATION_EVENT_GENERATOR_FUNC _ofsm_simulation_event_generator //typedef: void _ofsm_simulation_event_generator(). Function: expected to call: ofsm_hearbeat(unsigned long currentTicktime)
+#define OFSM_CONFIG_CUSTOM_PC_SIMULATION_EVENT_GENERATOR_FUNC _ofsm_simulation_event_generator //typedef: int _ofsm_simulation_event_generator(const char* fileName). Function: expected to call: ofsm_hearbeat(unsigned long currentTicktime)
 #define OFSM_CONFIG_CUSTOM_PC_SIMULATION_CUSTOM_STATUS_REPORT_PRINTER_FUNC _ofsm_simulation_status_report_printer // typedef: void custom_func(OFSMSimulationStatusReport *r)
+#define OFSM_CONFIG_CUSTOM_PC_SIMULATION_COMMAND_HOOK_FUNC						//Default: undefined; typedef: bool func(std::deque<std::string> &tokens); see PC SIMULATION EVENT GENERATOR for details.
 
 PC SIMULATION
 =============
@@ -183,26 +184,32 @@ To do that skatch code should follow the following rules:
 PC SIMULATION EVENT GENERATOR
 =============================
 Event generator is implemented as infinite loop which reads event information for the input and queues it in OFSM.
-Simulation command format: <command>,<parameters> //Value surrounded by '[]' denotes optional part(s).
+Simulation command format: <command>,<parameters>; Value surrounded by '[]' denotes optional part(s).
+Any command can be followed by comment that starts with '//' 
 * e[exit] - exit simulation; 
 * s[leep][,<sleep_milliseconds>] - forces event generator to sleep for <sleep_milliseconds> before reading next command; default sleep is 1000 milliseconds.
 	-Example:
-		1) sleep,2000	//sleep for 2 seconds
-		2) s,2000		// the same as above
+		1) sleep,2000		//sleep for 2 seconds
+		2) s,2000			// the same as above
 * q[ueue][,<modifiers>][,<event code>[,<event data>[,<group index>]]] - queue <event code> into OFSM.
 	-<modifiers> - (optional) either 'g' or 'f' or both; where: 'g' - if specified causes event to be queued for all groups (global event), 'f' - forces new event vs. possible replacement of previously queued
 	-Examples:
-		1) queue,g,0,0,1  //queue global event code 0 event data 0 into all groups;
-		2) q,1			  //queue event code 1 event data 0 into group 0;
-		3) q,f,2,1,1      //queue event code 2 event data 1 into group 1, force new event flag is set.
+		1) queue,g,0,0,1	//queue global event code 0 event data 0 into all groups;
+		2) q,1				//queue event code 1 event data 0 into group 0;
+		3) q,f,2,1,1		//queue event code 2 event data 1 into group 1, force new event flag is set.
 * h[eartbeat][,<current time (in ticks)>] // calls OFSM heartbeat with specified time; see also PC SIMULATION SCRIPT MODE;
 	-Examples:
-		1) heartbeat,1000  //ping OFSM and set current OFSM time to 1000 ticks
-		2) h,1000		   //same as above
+		1) heartbeat,1000	//ping OFSM and set current OFSM time to 1000 ticks
+		2) h,1000			//same as above
 * r[eport][,<group index>[,<fsm index>] // prints out report about current state of specified FSM, if not specified <group index> and <fsm index> assumed to be 0
 	- see PC SIMULATION REPORT FORMAT for details about produced output.
-* w[akup]    // explicitly wakeup OFSM; ignored unless OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE > 0
+* p[rint][,<string>]		// prints out <string>
+* w[akup]					// explicitly wakeup OFSM; ignored unless OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE > 0
 	- see PC SIMULATION REPORT FORMAT for details about produced output.
+
+You can define OFSM_CONFIG_CUSTOM_PC_SIMULATION_COMMAND_HOOK_FUNC that will be called before command gets processed by the event generator.
+This way you can extend standard set of commands or change their default behavior.
+By returning true hook signals event generator that command was processed. Otherwise, event generator will continue processing the command as usual.
 
 PC SIMULATION SCRIPT MODE
 =========================
@@ -246,6 +253,7 @@ TODO
 
 #ifdef OFSM_CONFIG_PC_SIMULATION
 #   include <iostream>
+#	include <fstream>
 #   include <thread>
 #   include <string>
 #   include <deque>
@@ -340,7 +348,7 @@ struct OFSMSimulationStatusReport;
 #endif
 
 #ifndef OFSM_CONFIG_CUSTOM_PC_SIMULATION_EVENT_GENERATOR_FUNC
-	void _ofsm_simulation_event_generator();
+	int _ofsm_simulation_event_generator(const char *fileName);
 #	define OFSM_CONFIG_CUSTOM_PC_SIMULATION_EVENT_GENERATOR_FUNC _ofsm_simulation_event_generator
 #	define _OFSM_IMPL_EVENT_GENERATOR
 #endif
@@ -739,11 +747,7 @@ void _ofsm_start() {
 	uint8_t timeFlags;
 
 	//start main loop
-#ifndef OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE
-    while (1) 
-#else
     do
-#endif
     {
 		OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
 			_ofsmFlags |= _OFSM_FLAG_INFINITE_SLEEP; //prevents _ofsm_check_timeout() to ever accessing _ofsmWakeupTime and queue timeout while in process
@@ -760,7 +764,7 @@ void _ofsm_start() {
 		for (i = 0; i < _ofsmGroupCount; i++) {
 			group = (_ofsmGroups)[i];
 #if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 3
-			ofsm_debug_printf("OFSM: Processing event for group index %i...\n", i);
+			ofsm_debug_printf("O: Processing event for group index %i...\n", i);
 #endif
 			_ofsm_group_process_pending_event(group, i, &groupEarliestWakeupTime, &groupAndedFsmFlags);
 
@@ -775,7 +779,7 @@ void _ofsm_start() {
 		//if have pending events in either of group, repeat the step
 		if (_ofsmFlags & _OFSM_FLAG_OFSM_EVENT_QUEUED) {
 #if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 3
-			ofsm_debug_printf("OFSM: At least one group has pending event(s). Re-process all groups.\n", i);
+			ofsm_debug_printf("O: At least one group has pending event(s). Re-process all groups.\n", i);
 #endif
 			continue;
 		}
@@ -784,7 +788,7 @@ void _ofsm_start() {
 			ofsm_get_time(currentTime, timeFlags);
 			if (_OFSM_TIME_A_GTE_B(currentTime, ((uint8_t)timeFlags & _OFSM_FLAG_OFSM_TIMER_OVERFLOW), earliestWakeupTime, (andedFsmFlags & _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW))) {
 #if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 2
-				ofsm_debug_printf("OFSM: Reached timeout. Queue global timeout event.\n", i);
+				ofsm_debug_printf("O: Reached timeout. Queue global timeout event.\n", i);
 #endif
 				ofsm_queue_global_event(false, 0, 0);
 				continue;
@@ -806,23 +810,23 @@ void _ofsm_start() {
 		}
 #ifndef OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE
 #   if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 3
-		ofsm_debug_printf("OFSM: Entering sleep... Wakeup Time %i.\n", _ofsmFlags & _OFSM_FLAG_INFINITE_SLEEP ? -1 : _ofsmWakeupTime);
+		ofsm_debug_printf("O: Entering sleep... Wakeup Time %i.\n", _ofsmFlags & _OFSM_FLAG_INFINITE_SLEEP ? -1 : _ofsmWakeupTime);
 #   endif
 		OFSM_CONFIG_CUSTOM_ENTER_SLEEP_FUNC();
 
 #   if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 3
-		ofsm_debug_printf("OFSM: Waked up.\n");
+		ofsm_debug_printf("O: Waked up.\n");
 #   endif
 #else 
 #   if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 3
-		ofsm_debug_printf("OFSM: Step through OFSM is complete.\n");
+		ofsm_debug_printf("O: Step through OFSM is complete.\n");
 #   endif
 #endif
 	
 #ifndef OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE
-    } 
+	} while (1);
 #else
-    } while(0);
+    } while(_ofsmFlags & _OFSM_FLAG_OFSM_EVENT_QUEUED);
 #endif
 }
 
@@ -841,12 +845,13 @@ static void inline _ofsm_check_timeout() __attribute__((__always_inline__))
 
 	if (_OFSM_TIME_A_GTE_B(_ofsmTime, (_ofsmFlags & _OFSM_FLAG_OFSM_TIMER_OVERFLOW), _ofsmWakeupTime, (_ofsmFlags & _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW))) {
 		ofsm_queue_global_event(false, 0, 0); //this call will wakeup main loop
-	}
+
 #ifdef OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE
 #   if OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE == 1
-    OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
+		OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
 #   endif
 #endif
+	}
     /*	}*/
 }
 
@@ -938,7 +943,7 @@ void _ofsm_queue_group_event(uint8_t groupIndex, OFSMGroup *group, bool forceNew
 #endif
 #if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 2
 	else {
-		ofsm_debug_printf("G(%i): Queued eventEvent %i eventData %i (0x%08X) (Updated %i, Buffer overflow %i).\n", groupIndex, eventCode, eventData, eventData, (debugFlags & 0x2) > 0, debugFlags & 0x1);
+		ofsm_debug_printf("G(%i): Queued eventEvent %i eventData %i (0x%08X) (Updated %i, Set buffer overflow %i).\n", groupIndex, eventCode, eventData, eventData, (debugFlags & 0x2) > 0, (group->flags & _OFSM_FLAG_GROUP_BUFFER_OVERFLOW) > 0);
 #   if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 3
 		ofsm_debug_printf("G(%i): currentEventIndex %i, nextEventIndex %i.\n", groupIndex, group->currentEventIndex, group->nextEventIndex);
 #   endif
@@ -964,7 +969,7 @@ static void inline ofsm_queue_group_event(uint8_t groupIndex, bool forceNewEvent
 {
 #if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 0
 	if (groupIndex >= _ofsmGroupCount) {
-		ofsm_debug_printf("OFSM: Invalid Group Index!!! Dropped eventCode %i eventData %i(0x%08X). \n", groupIndex, eventCode, eventData, eventData);
+		ofsm_debug_printf("O: Invalid Group Index!!! Dropped eventCode %i eventData %i(0x%08X). \n", groupIndex, eventCode, eventData, eventData);
 		return; 
 	}
 #endif
@@ -978,7 +983,7 @@ void ofsm_queue_global_event(bool forceNewEvent, uint8_t eventCode, OFSM_CONFIG_
 	for (i = 0; i < _ofsmGroupCount; i++) {
 		group = (_ofsmGroups)[i];
 #if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 3
-		ofsm_debug_printf("OFSM: Event queuing group %i...\n", i);
+		ofsm_debug_printf("O: Event queuing group %i...\n", i);
 #endif
 		_ofsm_queue_group_event(i, group, forceNewEvent, eventCode, eventData);
 	}
@@ -1168,18 +1173,32 @@ int main(int argc, char* argv[])
     _ofsm_simulation_fsm_thread(0);
 #endif
 
+	char *scriptFileName = NULL;
+	if (argc > 1) {
+		switch (argc) {
+			case 2:
+				scriptFileName = argv[1];
+				break;
+			default:
+				std::cerr << "Too many argument. Exiting..." << std::endl;
+				return 1;
+				break;
+		}
+	}
 
 	//call event generator
-	OFSM_CONFIG_CUSTOM_PC_SIMULATION_EVENT_GENERATOR_FUNC();
+	int exitCode = OFSM_CONFIG_CUSTOM_PC_SIMULATION_EVENT_GENERATOR_FUNC(scriptFileName);
 
 	//if returned assume exit
 	OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
 		_ofsmFlags |= _OFSM_FLAG_OFSM_SIMULATION_EXIT;
+#ifndef OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE
 		OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
+#endif
 	}
-	_ofsm_simulation_sleep(200);
+	_ofsm_simulation_sleep(500);
 	
-	return 0;
+	return exitCode;
 }
 
 #else /* if not OFSM_CONFIG_PC_SIMULATION*/

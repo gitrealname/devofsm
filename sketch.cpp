@@ -1,13 +1,13 @@
 #define OFSM_CONFIG_DEBUG_LEVEL 4
-#define OFSM_CONFIG_PC_SIMULATION
-#define OFSM_CONFIG_PC_SIMULATION_SLEEP_BETWEEN_EVENTS_MS 500
-#define OFSM_CONFIG_TAKE_NEW_TIME_SNAPSHOT_FOR_EACH_GROUP
 #define OFSM_CONFIG_DEBUG_PRINT_ADD_TIMESTAMP
 #define OFSM_CONFIG_DEFAULT_STATE_TRANSITION_DELAY 5
-#define OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE
-#define OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE 1
 
-#include "Ofsm.h"
+#define OFSM_CONFIG_PC_SIMULATION
+#define OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE
+#define OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE 2
+#define OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE_SLEEP_BETWEEN_EVENTS_MS 500
+
+#include "ofsm.h"
 
 /*--------------------------------
 Handlers
@@ -134,20 +134,21 @@ void _ofsm_simulation_create_status_report(OFSMSimulationStatusReport *r, uint8_
 		}
         //Group
 		OFSMGroup *grp = (_ofsmGroups[groupIndex]);
-		r->grpEventBufferOverflow = (bool)((grp->flags & _OFSM_FLAG_INFINITE_SLEEP) > 0);
-		if (grp->nextEventIndex > grp->currentEventIndex) {
-			r->grpPendingEventCount = grp->nextEventIndex - grp->currentEventIndex;
-		}
-		else {
-			if (r->grpEventBufferOverflow && (grp->currentEventIndex == grp->nextEventIndex)) {
-				if(grp->currentEventIndex == grp->nextEventIndex) {
-                    r->grpPendingEventCount = grp->eventQueueSize;
-                } else {
-                    r->grpPendingEventCount = grp->eventQueueSize - (grp->currentEventIndex - grp->nextEventIndex);
-                }
+		r->grpEventBufferOverflow = (bool)((grp->flags & _OFSM_FLAG_GROUP_BUFFER_OVERFLOW) > 0);
+		if (r->grpEventBufferOverflow) {
+			if (grp->currentEventIndex == grp->nextEventIndex) {
+				r->grpPendingEventCount = grp->eventQueueSize;
 			}
 			else {
-				r->grpPendingEventCount = 0;
+				r->grpPendingEventCount = grp->eventQueueSize - (grp->currentEventIndex - grp->nextEventIndex);
+			}
+		}
+		else {
+			if (grp->nextEventIndex < grp->currentEventIndex) {
+				r->grpPendingEventCount = grp->eventQueueSize - (grp->currentEventIndex - grp->nextEventIndex);
+			}
+			else {
+				r->grpPendingEventCount = grp->nextEventIndex - grp->currentEventIndex;
 			}
 		}
         //FSM
@@ -164,14 +165,26 @@ void _ofsm_simulation_create_status_report(OFSMSimulationStatusReport *r, uint8_
 		}
     }
 }
-//TBI: implementation of OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE
-void _ofsm_simulation_event_generator() {
+
+int _ofsm_simulation_event_generator(const char *fileName ) {
 	std::string line;
+	std::ifstream fileStream;
+	int exitCode = 0;
+	int lineNumber = 0;
+
+	//fileName = "D:/Work/devofsm/test/ofsm.test";
+
+	if (fileName) {
+		fileStream.open(fileName);
+		std::cin.rdbuf(fileStream.rdbuf());
+	}
+
 	while (!std::cin.eof())
 	{
 
 		//read line from stdin
 		std::getline(std::cin, line);
+		lineNumber++;
 		trim(line);
 		std::transform(line.begin(), line.end(), line.begin(), ::tolower);
 
@@ -198,6 +211,13 @@ void _ofsm_simulation_event_generator() {
 			continue;
 		}
 
+#ifdef OFSM_CONFIG_CUSTOM_PC_SIMULATION_COMMAND_HOOK_FUNC
+		if (OFSM_CONFIG_CUSTOM_PC_SIMULATION_COMMAND_HOOK_FUNC(tokens)) {
+			continue;
+		}
+#endif
+
+
 		//if line starts with digit, assume shorthand of 'queue' command: eventCode[,eventData[,groupIndex]]
 		std::string digits = "0123456789";
 		if (std::string::npos != digits.find(tokens[0])) {
@@ -210,15 +230,15 @@ void _ofsm_simulation_event_generator() {
 
 		if (0 == t.find("e")) {				//e[xit]
 #if OFSM_CONFIG_DEBUG_LEVEL_OFSM> 3
-			ofsm_debug_printf("EG: Exiting...\n");
+			ofsm_debug_printf("G: Exiting...\n");
 #endif
-			return;
+			return exitCode;
 		}
 		if (0 == t.find("w")) {				//w[akeup]
 #if OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE > 0
             OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
 #endif
-            return;
+            continue;
 		}
 		else if (0 == t.find("s")) {		//s[leep][,sleepPeriod]
 			unsigned long sleepPeriod = 0;
@@ -229,9 +249,18 @@ void _ofsm_simulation_event_generator() {
 				sleepPeriod = 1000;
 			}
 #if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 3
-			ofsm_debug_printf("EG: Entering sleep for %i milliseconds...\n", sleepPeriod);
+			ofsm_debug_printf("G: Entering sleep for %i milliseconds...\n", sleepPeriod);
 #endif
 			_ofsm_simulation_sleep(sleepPeriod);
+			continue;
+
+		}
+		else if (0 == t.find("p")) {		//p[rint][,<stuff to be printed>]
+			std::string  str = "";
+			if (tCount > 1) {
+				str = tokens[1];
+			}
+			std::cout << str << std::endl;
 			continue;
 
 		}
@@ -307,7 +336,7 @@ void _ofsm_simulation_event_generator() {
 		}
 		else {
 #if OFSM_CONFIG_DEBUG_LEVEL_OFSM > 0
-				ofsm_debug_printf("EG: Invalid command: %s. Ignored.\n", line.c_str());
+				ofsm_debug_printf("G: Invalid command: %s. Ignored.\n", line.c_str());
 #endif
 				continue;
 			}
@@ -315,7 +344,9 @@ void _ofsm_simulation_event_generator() {
         _ofsm_simulation_sleep(OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE_SLEEP_BETWEEN_EVENTS_MS);
 #endif
 
-		}
+	}
+
+	return exitCode;
 }
 
 void setup() {

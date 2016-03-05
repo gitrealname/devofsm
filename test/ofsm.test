@@ -1,0 +1,7 @@
+queue,1
+report
+queue,2
+report
+queue,3
+report
+sleep,5000 //sleep for 5 secs before exiting
