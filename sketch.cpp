@@ -1,41 +1,47 @@
-#define OFSM_CONFIG_DEBUG_LEVEL 4
+//build cmd: g++.exe -Wall -std=c++11 -fexceptions -std=c++11 -g  -c D:\Work\devofsm\sketch.cpp -o obj\Debug\sketch.o
 
-#define OFSM_CONFIG_DEBUG_PRINT_ADD_TIMESTAMP
 #define OFSM_CONFIG_DEFAULT_STATE_TRANSITION_DELAY 5
 
-#define OFSM_CONFIG_PC_SIMULATION
-#define OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE
-#define OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE 2
-#define OFSM_CONFIG_PC_SIMULATION_SCRIPT_MODE_SLEEP_BETWEEN_EVENTS_MS 500
+#define OFSM_CONFIG_SIMULATION
+
+#define OFSM_CONFIG_SIMULATION_SCRIPT_MODE
+#define OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE 2
+#define OFSM_CONFIG_SIMULATION_SCRIPT_MODE_SLEEP_BETWEEN_EVENTS_MS 500
+
+#define OFSM_CONFIG_SIMULATION_DEBUG_LEVEL 4
+#define OFSM_CONFIG_SIMULATION_DEBUG_LEVEL_OFSM 4
+
+#define OFSM_CONFIG_SIMULATION_DEBUG_PRINT_ADD_TIMESTAMP
 
 #include "ofsm.h"
+
 
 /*--------------------------------
 Handlers
 --------------------------------*/
 void handleInit(OFSMState *fsm) {
-	ofsm_debug_printf("H(%i-%i): handleInit\n", fsm_get_state(fsm), fsm_get_event_code(fsm));
+	ofsm_debug_printf(1, "H(%i-%i): handleInit\n", fsm_get_state(fsm), fsm_get_event_code(fsm));
 }
 
 void handleS0E1(OFSMState *fsm) {
-	ofsm_debug_printf("H(%i-%i): handleS0E1\n", fsm_get_state(fsm), fsm_get_event_code(fsm));
+	ofsm_debug_printf(1, "H(%i-%i): handleS0E1\n", fsm_get_state(fsm), fsm_get_event_code(fsm));
 }
 
 void handleS0E2(OFSMState *fsm) {
-	ofsm_debug_printf("H(%i-%i): handleS0E2\n", fsm_get_state(fsm), fsm_get_event_code(fsm));
+	ofsm_debug_printf(1, "H(%i-%i): handleS0E2\n", fsm_get_state(fsm), fsm_get_event_code(fsm));
 	fsm_set_transition_delay(fsm, 10);
 }
 
 void handleS1E1(OFSMState *fsm) {
-	ofsm_debug_printf("H(%i-%i): handleS1E1\n", fsm_get_state(fsm), fsm_get_event_code(fsm));
+	ofsm_debug_printf(1, "H(%i-%i): handleS1E1\n", fsm_get_state(fsm), fsm_get_event_code(fsm));
 }
 
 void handlerTimeout(OFSMState *fsm) {
-	ofsm_debug_printf("H(%i-%i): handleTimeout\n", fsm_get_state(fsm), fsm_get_event_code(fsm));
+	ofsm_debug_printf(1, "H(%i-%i): handleTimeout\n", fsm_get_state(fsm), fsm_get_event_code(fsm));
 }
 
 void handlerE3Failure(OFSMState *fsm) {
-	ofsm_debug_printf("H(%i-%i): handlerE3Failure\n", fsm_get_state(fsm), fsm_get_event_code(fsm));
+	ofsm_debug_printf(1, "H(%i-%i): handlerE3Failure\n", fsm_get_state(fsm), fsm_get_event_code(fsm));
 	fsm_prevent_transition(fsm);
 }
 

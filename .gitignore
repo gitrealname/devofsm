@@ -38,3 +38,8 @@
 *.suo
 *.vcxproj
 *.vcxproj
+/*.filters
+/ignore.cpp
+/*.depend
+/*.layout
+/*.cbp
