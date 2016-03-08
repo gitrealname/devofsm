@@ -30,16 +30,15 @@
 
 # Debug files
 *.dSYM/
-/Debug
 *.user
 *.opensdf
 *.sdf
 *.sln
 *.suo
 *.vcxproj
-*.vcxproj
-/*.filters
-/ignore.cpp
-/*.depend
-/*.layout
-/*.cbp
+*.filters
+ignore.cpp
+*.depend
+*.layout
+*.cbp
+Debug

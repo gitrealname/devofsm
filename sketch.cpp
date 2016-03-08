@@ -1,4 +1,4 @@
-//build cmd: g++.exe -Wall -std=c++11 -fexceptions -std=c++11 -g  -c D:\Work\devofsm\sketch.cpp -o obj\Debug\sketch.o
+//GCC build cmd: g++ -Wall -std=c++11 -fexceptions -std=c++11 -g  -c D:\Work\devofsm\sketch.cpp -o obj\Debug\sketch.o
 
 #define OFSM_CONFIG_DEFAULT_STATE_TRANSITION_DELAY 5
 

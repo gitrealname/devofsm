@@ -113,26 +113,30 @@ Interrupt handlers are expected to care only about the following functions:
 
 FSM EVENT HANDLERS API
 ======================
-TBI: update list!!!
-* fsm_prevent_transition(OFSM *fsm)
-* fsm_set_transition_delay(OFSM *fsm, unsigned long delayTicks)
-* fsm_set_inifinite_delay(OFSM *fsm)
-* fsm_get_private_data(OFSM *fsm)
-* fsm_get_private_data_cast(OFSM *fsm, castType)                // example: MyPrivateStruct_t *data = fsm_get_private_data_cast(fsm, MyPrivateStruct_t*)
-* fsm_get_fsm_ndex(OFSM *fsm)                                   //index of fsm in the group
-* fsm_get_group_index(OFSM *fsm)                                //index of group in OFSM
-* fsm_get_state(OFSM *fsm)
-* fsm_get_event_code(OFSM *fsm)
-* fsm_get_event_data(OFSM *fsm)
-* fsm_set_next_state(OFSM *fsm, uint8_t nextStateId)            //TRY TO AVOID IT! overrides default transition state from the handler
-* fsm_queue_group_event(OFSM *fsm, uint8_t eventCode, OFSM_CONFIG_EVENT_DATA_TYPE eventData)
+* fsm_prevent_transition(OFSMState *fsm)
+
+* fsm_set_transition_delay(OFSMState *fsm, unsigned long delayTicks)
+* fsm_set_inifinite_delay(OFSMState *fsm)
+* fsm_set_next_state(OFSMState *fsm, uint8_t nextStateId)            //TRY TO AVOID IT! overrides default transition state from the handler
+
+* fsm_get_private_data(OFSMState *fsm)
+* fsm_get_private_data_cast(OFSMState *fsm, castType)                // example: MyPrivateStruct_t *data = fsm_get_private_data_cast(fsm, MyPrivateStruct_t*)
+* fsm_get_state(OFSMState *fsm)
+* fsm_get_time_left_before_timeout(OFSMState *fsm)                   
+* fsm_get_fsm_ndex(OFSMState *fsm)                                   //index of fsm in the group
+* fsm_get_group_index(OFSMState *fsm)                                //index of group in OFSM
+* fsm_get_event_code(OFSMState *fsm)
+* fsm_get_event_data(OFSMState *fsm)
+
+* fsm_queue_group_event(OFSMState *fsm, uint8_t eventCode, OFSM_CONFIG_EVENT_DATA_TYPE eventData) //queue event into current group
+
 * ofsm_queue_global_event(uint8_t eventCode, OFSM_CONFIG_EVENT_DATA_TYPE eventData)
-* ofsm_debug_printf(level,format, ....)	                       //debug print
+* ofsm_debug_printf(level,format, ....)	                       //Simulation mode debug print
 
 CONFIGURATION
 =============
 OFSM can be "shaped" in many different ways using configuration switches. NOTE: all configuration switches must be defined before #include <ofsm.h>:
-#define OFSM_CONFIG_DEFAULT_STATE_TRANSITION_DELAY              //Default 0. Specifies default transition delay, if event handler didn't set one.
+#define OFSM_CONFIG_DEFAULT_STATE_TRANSITION_DELAY              //Default 0. Specifies default transition delay, used if event handler didn't set one.
 #define OFSM_CONFIG_EVENT_DATA_TYPE uint8_t                     //Default uint8_t (8 bits). Event data type.
 #define OFSM_CONFIG_ATOMIC_BLOCK ATOMIC_BLOCK                   //Default: ATOMIC_BLOCK; Retain compatibility with original: see implementation details in <util/atomic.h> from AVR SDK.
 #define OFSM_CONFIG_ATOMIC_RESTORESTATE ATOMIC_RESTORESTATE     //Default: ATOMIC_RESTORESTATE see <util/atomic.h>
@@ -253,9 +257,11 @@ TODO
 #   ifndef __attribute__
 #       define __attribute__(xxx)
 #   endif
-#	define _strncpy(dest, src, size) strcpy_s(dest, size, src)
+#	define _ofsm_strncpy(dest, src, size) strcpy_s(dest, size, src)
+#   define _ofsm_snprintf(dest, size, format, ...) sprintf_s(dest, size, format, __VA_ARGS__)
 #else
-#	define _strncpy(dest, src, size) strncpy(dest, src, size)
+#   define _ofsm_snprintf(dest, size, format, ...) snprintf_s(dest, size, format, __VA_ARGS__)
+#	define _ofsm_strncpy(dest, src, size) strncpy(dest, src, size)
 #endif /*_MSC_VER*/
 
 
@@ -276,6 +282,9 @@ TODO
 #   include <string.h>
 #	include <stdio.h>
 #   include <stdint.h> /*for uint8_t support*/
+#   define _OFSM_TIME_DATA_TYPE uint32_t //make it the same size as AVR unsigned long
+#else
+#   define _OFSM_TIME_DATA_TYPE unsigned long
 #endif
 
 /*default event data type*/
@@ -304,10 +313,10 @@ Sketch code that uses this function may be left untouched when compiled for MCU 
 
 void ofsm_queue_global_event(bool forceNewEvent, uint8_t eventCode, OFSM_CONFIG_EVENT_DATA_TYPE eventData);
 void ofsm_queue_group_event(uint8_t groupIndex, bool forceNewEvent, uint8_t eventCode, OFSM_CONFIG_EVENT_DATA_TYPE eventData);
-static inline void ofsm_heartbeat(unsigned long currentTime)  __attribute__((__always_inline__));
+static inline void ofsm_heartbeat(_OFSM_TIME_DATA_TYPE currentTime)  __attribute__((__always_inline__));
 
 void _ofsm_queue_group_event(uint8_t groupIndex, OFSMGroup *group, bool forceNewEvent, uint8_t eventCode, OFSM_CONFIG_EVENT_DATA_TYPE eventData);
-static inline void _ofsm_group_process_pending_event(OFSMGroup *group, uint8_t groupIndex, unsigned long *groupEarliestWakeupTime, uint8_t *groupAndedFsmFlags) __attribute__((__always_inline__));
+static inline void _ofsm_group_process_pending_event(OFSMGroup *group, uint8_t groupIndex, _OFSM_TIME_DATA_TYPE *groupEarliestWakeupTime, uint8_t *groupAndedFsmFlags) __attribute__((__always_inline__));
 static inline void _ofsm_fsm_process_event(OFSM *fsm, uint8_t groupIndex, uint8_t fsmIndex, OFSMEventData *e) __attribute__((__always_inline__));
 static inline void _ofsm_check_timeout() __attribute__((__always_inline__));
 void _ofsm_setup();
@@ -329,7 +338,7 @@ volatile char _ofsm_simulation_assert_compare_string[256];
 OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { \
 	std::string s = str; \
 	s = trim(s); \
-	_strncpy((char*)_ofsm_simulation_assert_compare_string, s.c_str(), 255); \
+	_ofsm_strncpy((char*)_ofsm_simulation_assert_compare_string, s.c_str(), 255); \
 }
 
 /*DEBUG should be turned on during simulation*/
@@ -344,7 +353,7 @@ OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { \
 #   define ofsm_debug_printf(level,  ...) \
         if( level <= OFSM_CONFIG_SIMULATION_DEBUG_LEVEL ) { \
 			OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { \
-				unsigned long __time; \
+				_OFSM_TIME_DATA_TYPE __time; \
 				ofsm_get_time(__time, __time); \
 				printf("[%lu] ", __time); \
 				printf(__VA_ARGS__); \
@@ -353,7 +362,7 @@ OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { \
 #   define _ofsm_debug_printf(level,  ...) \
         if( level <= OFSM_CONFIG_SIMULATION_DEBUG_LEVEL_OFSM ) { \
 			OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { \
-				unsigned long __time; \
+				_OFSM_TIME_DATA_TYPE __time; \
 				ofsm_get_time(__time, __time); \
 				printf("[%lu] ", __time); \
 				printf(__VA_ARGS__); \
@@ -478,14 +487,14 @@ struct OFSM {
 	OFSMHandler         initHandler;                /*optional, can be null*/
 	void*               fsmPrivateInfo;
 	uint8_t             flags;
-	unsigned long       wakeupTime;
+	_OFSM_TIME_DATA_TYPE       wakeupTime;
 	uint8_t             currentState;
 };
 
 struct OFSMState {
 	OFSM				*fsm;
 	OFSMEventData*      e;
-	unsigned long		timeLeftBeforeTimeout;      /*time left before timeout set by previous transition*/
+	_OFSM_TIME_DATA_TYPE		timeLeftBeforeTimeout;      /*time left before timeout set by previous transition*/
 	uint8_t             groupIndex;                 /*group index where current fsm is registered*/
 	uint8_t             fsmIndex;	                /*fsm index within group*/
 };
@@ -542,6 +551,8 @@ Macros
 #define fsm_get_group_index(fsms)						(fsms->groupIndex)
 #define fsm_get_event_code(fsms)						((fsms->e)[0].eventCode)
 #define fsm_get_event_data(fsms)						((fsms->e)[0].eventData)
+#define fsm_queue_group_event(fsms, forceNewEvent, eventCode, eventData) \
+    ofsm_queue_group_event(fsm_get_group_index(fsms), bool forceNewEvent, uint8_t eventCode, OFSM_CONFIG_EVENT_DATA_TYPE eventData)
 
 
 #define ofsm_get_time(currentTime, timeFlags) \
@@ -563,17 +574,17 @@ Implementation
 OFSMGroup**				_ofsmGroups;
 uint8_t                 _ofsmGroupCount;
 volatile uint8_t        _ofsmFlags;
-volatile unsigned long  _ofsmWakeupTime;
-volatile unsigned long  _ofsmTime;
+volatile _OFSM_TIME_DATA_TYPE  _ofsmWakeupTime;
+volatile _OFSM_TIME_DATA_TYPE  _ofsmTime;
 
 static inline void _ofsm_fsm_process_event(OFSM *fsm, uint8_t groupIndex, uint8_t fsmIndex, OFSMEventData *e)
 {
 	OFSMTransition *t;
 	uint8_t oldFlags;
-	unsigned long oldWakeupTime;
+	_OFSM_TIME_DATA_TYPE oldWakeupTime;
 	uint8_t wakeupTimeGTcurrentTime;
 	OFSMState fsmState;
-	unsigned long currentTime;
+	_OFSM_TIME_DATA_TYPE currentTime;
 	uint8_t timeFlags;
 
 #ifdef OFSM_CONFIG_SIMULATION
@@ -676,12 +687,12 @@ static inline void _ofsm_fsm_process_event(OFSM *fsm, uint8_t groupIndex, uint8_
 	_ofsm_debug_printf(2,  "F(%i)G(%i): Transitioning from state %i ==>%c%i. Transition delay: %ld\n", fsmIndex, groupIndex,  prevState, overridenState, fsm->currentState, delay);
 }
 
-static inline void _ofsm_group_process_pending_event(OFSMGroup *group, uint8_t groupIndex, unsigned long *groupEarliestWakeupTime, uint8_t *groupAndedFsmFlags)
+static inline void _ofsm_group_process_pending_event(OFSMGroup *group, uint8_t groupIndex, _OFSM_TIME_DATA_TYPE *groupEarliestWakeupTime, uint8_t *groupAndedFsmFlags)
 {
 	OFSMEventData e;
 	OFSM *fsm;
 	uint8_t andedFsmFlags = (uint8_t)0xFFFF;
-	unsigned long earliestWakeupTime = 0xFFFFFFFF;
+	_OFSM_TIME_DATA_TYPE earliestWakeupTime = 0xFFFFFFFF;
 	uint8_t i;
 	uint8_t eventPending = 1;
 
@@ -743,10 +754,10 @@ void _ofsm_start() {
 	uint8_t i;
 	OFSMGroup *group;
 	uint8_t andedFsmFlags;
-	unsigned long earliestWakeupTime;
+	_OFSM_TIME_DATA_TYPE earliestWakeupTime;
 	uint8_t groupAndedFsmFlags;
-	unsigned long groupEarliestWakeupTime;
-	unsigned long currentTime;
+	_OFSM_TIME_DATA_TYPE groupEarliestWakeupTime;
+	_OFSM_TIME_DATA_TYPE currentTime;
 	uint8_t timeFlags;
 
 	//start main loop
@@ -846,9 +857,9 @@ static inline void _ofsm_check_timeout()
     /*	}*/
 }
 
-static inline void ofsm_heartbeat(unsigned long currentTime)
+static inline void ofsm_heartbeat(_OFSM_TIME_DATA_TYPE currentTime)
 {
-	unsigned long prevTime;
+	_OFSM_TIME_DATA_TYPE prevTime;
 	OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
 		prevTime = _ofsmTime;
 		_ofsmTime = currentTime;
@@ -968,12 +979,12 @@ Simulation and non-simulation specific code
 struct OFSMSimulationStatusReport {
 	uint8_t grpIndex;
 	uint8_t fsmIndex;
-	unsigned long ofsmTime;
+	_OFSM_TIME_DATA_TYPE ofsmTime;
 	//OFSM status
 	bool ofsmInfiniteSleep;
 	bool ofsmTimerOverflow;
 	bool ofsmScheduledTimeOverflow;
-	unsigned long ofsmScheduledWakeupTime;
+	_OFSM_TIME_DATA_TYPE ofsmScheduledWakeupTime;
 	//Group status
 	bool grpEventBufferOverflow;
 	uint8_t grpPendingEventCount;
@@ -982,7 +993,7 @@ struct OFSMSimulationStatusReport {
 	bool fsmTransitionPrevented;
 	bool fsmTransitionStateOverriden;
 	bool fsmScheduledTimeOverflow;
-	unsigned long fsmScheduledWakeupTime;
+	_OFSM_TIME_DATA_TYPE fsmScheduledWakeupTime;
 	uint8_t fsmCurrentState;
 };
 
@@ -1011,7 +1022,7 @@ static inline std::string &toLower(std::string &s) {
 #ifdef _OFSM_IMPL_SIMULATION_STATUS_REPORT_PRINTER
 void _ofsm_simulation_status_report_printer(OFSMSimulationStatusReport *r) {
 	char buf[80];
-	snprintf(buf, (sizeof(buf) / sizeof(*buf)), "-O[%c]-G(%i)[%c,%03d]-F(%i)[%c%c%c]-S(%i)-TW[%010lu%c,O:%010lu%c,F:%010lu%c]"
+	_ofsm_snprintf(buf, (sizeof(buf) / sizeof(*buf)), "-O[%c]-G(%i)[%c,%03d]-F(%i)[%c%c%c]-S(%i)-TW[%010lu%c,O:%010lu%c,F:%010lu%c]"
 		//OFSM (-O)
 		, (r->ofsmInfiniteSleep ? 'I' : 'i')
 		//Group (-G)
@@ -1226,7 +1237,7 @@ int _ofsm_simulation_event_generator(const char *fileName) {
 		break;
 		case 's':			//s[leep][,sleepPeriod]
 		{
-			unsigned long sleepPeriod = 0;
+			_OFSM_TIME_DATA_TYPE sleepPeriod = 0;
 			if (tCount > 1) {
 				sleepPeriod = atoi(tokens[1].c_str());
 			}
@@ -1297,7 +1308,7 @@ int _ofsm_simulation_event_generator(const char *fileName) {
 		break;
 		case 'b':			// b[eat][,currentTime] //heartbeat
 		{
-			unsigned long currentTime;
+			_OFSM_TIME_DATA_TYPE currentTime;
 			if (tCount > 1) {
 				t = tokens[1];
 				currentTime = atoi(t.c_str());
@@ -1362,12 +1373,12 @@ void _ofsm_simulation_fsm_thread(int ignore) {
 }
 
 void _ofsm_simulation_heartbeat_provider_thread(int tickSize) {
-	unsigned long currentTime = 0;
+	_OFSM_TIME_DATA_TYPE currentTime = 0;
 	while (1) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(tickSize));
 
 		OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
-			unsigned long time;
+			_OFSM_TIME_DATA_TYPE time;
 			ofsm_get_time(time, time);
 			if (time > currentTime) {
 				currentTime = time;
