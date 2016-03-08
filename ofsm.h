@@ -148,6 +148,7 @@ OFSM can be "shaped" in many different ways using configuration switches. NOTE: 
 #define OFSM_CONFIG_EVENT_DATA_TYPE uint8_t                     //Default uint8_t (8 bits). Event data type.
 #define OFSM_CONFIG_ATOMIC_BLOCK ATOMIC_BLOCK                   //Default: ATOMIC_BLOCK; Retain compatibility with original: see implementation details in <util/atomic.h> from AVR SDK.
 #define OFSM_CONFIG_ATOMIC_RESTORESTATE ATOMIC_RESTORESTATE     //Default: ATOMIC_RESTORESTATE see <util/atomic.h>
+#define OFSM_CONFIG_SUPPORT_INITIALIZATION_HANDLER              //Default: undefined. When defined OFMS start support for initialization handlers. This will consume a little bit of memory, as handler place holder and initialization logic will be implemented.
 
 //By default OFSM uses timer0 to implement heartbeat provider,
 //If this macro is defined, standard heartbeat provided will not be implemented 
@@ -212,7 +213,7 @@ Any command can optionally be followed by '=' <assert compare string>.
 '//' designates comment. Event generator will ignore any text appearing after '//'.
 The following are commands supported by event generator out of box;
 * e[exit] - exit simulation;
-* s[leep][,<sleep_milliseconds>] - forces event generator to sleep for <sleep_milliseconds> before reading next command; default sleep is 1000 milliseconds.
+* d[elay][,<sleep_milliseconds>] - forces event generator to sleep for <sleep_milliseconds> before reading next command; default sleep is 1000 milliseconds.
     -Example:
         1) sleep,2000		//sleep for 2 seconds
         2) s,2000			// the same as above
@@ -226,10 +227,13 @@ The following are commands supported by event generator out of box;
     -Examples:
         1) heartbeat,1000	//ping OFSM and set current OFSM time to 1000 ticks
         2) h,1000			//same as above
-* r[eport][,<group index>[,<fsm index>] // prints out report about current state of specified FSM, if not specified <group index> and <fsm index> assumed to be 0
+* s[tatus][,<group index>[,<fsm index>] // prints out status report about current state of specified FSM, if not specified <group index> and <fsm index> assumed to be 0
     - see PC SIMULATION REPORT FORMAT for details about produced output.
+
 * p[rint][,<string>]		// prints out <string>
 * w[akup]					// explicitly wakeup OFSM; ignored unless OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE > 0
+* r[eset]                   // reset and restart OFSM;
+
 
 You can define OFSM_CONFIG_CUSTOM_SIMULATION_COMMAND_HOOK_FUNC that will be called before command gets processed by the event generator.
 This way you can extend standard set of commands or change their default behavior.
@@ -325,6 +329,7 @@ void _ofsm_queue_group_event(uint8_t groupIndex, OFSMGroup *group, bool forceNew
 static inline void _ofsm_group_process_pending_event(OFSMGroup *group, uint8_t groupIndex, _OFSM_TIME_DATA_TYPE *groupEarliestWakeupTime, uint8_t *groupAndedFsmFlags) __attribute__((__always_inline__));
 static inline void _ofsm_fsm_process_event(OFSM *fsm, uint8_t groupIndex, uint8_t fsmIndex, OFSMEventData *e) __attribute__((__always_inline__));
 static inline void _ofsm_check_timeout() __attribute__((__always_inline__));
+static inline void _ofsm_setup_hardware()  __attribute__((__always_inline__));
 void _ofsm_setup();
 void _ofsm_start();
 
@@ -494,7 +499,9 @@ struct OFSMEventData {
 struct OFSM {
     OFSMTransition**    transitionTable;
     uint8_t             transitionTableEventCount;  /*number of elements in each row (number of events defined)*/
+#ifdef OFSM_CONFIG_SUPPORT_INITIALIZATION_HANDLER
     OFSMHandler         initHandler;                /*optional, can be null*/
+#endif
     void*               fsmPrivateInfo;
     uint8_t             flags;
     _OFSM_TIME_DATA_TYPE wakeupTime;
@@ -542,7 +549,7 @@ Flags
 #define _OFSM_FLAG_OFSM_EVENT_QUEUED	0x10
 #define _OFSM_FLAG_OFSM_TIMER_OVERFLOW	0x20
 #define _OFSM_FLAG_OFSM_INTERRUPT_INFINITE_SLEEP_ON_TIMEOUT	0x40 /*used at startup to allow queued timeout event to wakeup FSM*/
-#define _OFSM_FLAG_OFSM_SIMULATION_EXIT		0x100
+#define _OFSM_FLAG_OFSM_SIMULATION_EXIT		0x80
 
 /*------------------------------------------------
 Macros
@@ -697,7 +704,7 @@ static inline void _ofsm_fsm_process_event(OFSM *fsm, uint8_t groupIndex, uint8_
         }
     }
     _ofsm_debug_printf(2,  "F(%i)G(%i): Transitioning from state %i ==>%c%i. Transition delay: %ld\n", fsmIndex, groupIndex,  prevState, overridenState, fsm->currentState, delay);
-}
+}/*_ofsm_fsm_process_event*/
 
 static inline void _ofsm_group_process_pending_event(OFSMGroup *group, uint8_t groupIndex, _OFSM_TIME_DATA_TYPE *groupEarliestWakeupTime, uint8_t *groupAndedFsmFlags)
 {
@@ -756,11 +763,64 @@ static inline void _ofsm_group_process_pending_event(OFSMGroup *group, uint8_t g
 
     *groupEarliestWakeupTime = earliestWakeupTime;
     *groupAndedFsmFlags  = andedFsmFlags;
-}
+}/*_ofsm_group_process_pending_event*/
+
+static inline void _ofsm_setup_hardware() {
+#ifdef OFSM_CONFIG_SIMULATION
+    //TBI:
+#endif /*OFSM_CONFIG_SIMULATION*/
+}/*_ofsm_setup_hardware*/
 
 void _ofsm_setup() {
-    //TBI:
-}
+
+    /*In simulation mode, we need to allow to reset OFSM. Reset internal states*/
+#ifdef OFSM_CONFIG_SIMULATION
+    uint8_t i, k;
+    OFSMGroup *group;
+    OFSM *fsm;
+    /*reset GLOBALS*/
+    _ofsmFlags = (_OFSM_FLAG_INFINITE_SLEEP |_OFSM_FLAG_OFSM_INTERRUPT_INFINITE_SLEEP_ON_TIMEOUT);
+    _ofsmTime = 0; 
+    /*reset groups and FSMs*/
+	for (i = 0; i < _ofsmGroupCount; i++) {
+		group = (_ofsmGroups)[i];
+        group->flags = 0;
+        group->currentEventIndex = group->nextEventIndex = 0;
+		for (k = 0; k < group->groupSize; k++) {
+			fsm = (group->fsms)[k];
+            fsm->flags = _OFSM_FLAG_INFINITE_SLEEP;
+        }
+    }
+#else
+    _ofsm_setup_hardware();
+#endif /*OFSM_CONFIG_SIMULATION*/
+
+#ifdef OFSM_CONFIG_SUPPORT_INITIALIZATION_HANDLER
+    //configure FSMs, call all initialization handlers
+#   ifndef OFSM_CONFIG_SIMULATION
+    uint8_t i, k;
+    OFSMGroup *group;
+    OFSM *fsm;
+#   endif
+    OFSMState fsmState;
+    OFSMEventData e = {0,0};
+    fsmState.e = &e;
+	for (i = 0; i < _ofsmGroupCount; i++) {
+		group = (_ofsmGroups)[i];
+		for (k = 0; k < group->groupSize; k++) {
+			fsm = (group->fsms)[k];
+	        _ofsm_debug_printf(4, "F(%i)G(%i): Initializing...\n", k, i );
+            fsmState.fsm = fsm;
+            fsmState.timeLeftBeforeTimeout = 0;
+            fsmState.groupIndex = i;
+            fsmState.fsmIndex = k;
+	        if (fsm->initHandler) {
+		        (fsm->initHandler)(&fsmState);
+	        }
+		}
+	}
+#endif
+} /*_ofsm_setup*/
 
 void _ofsm_start() {
     uint8_t i;
@@ -842,14 +902,14 @@ void _ofsm_start() {
 #else
     } while(_ofsmFlags & _OFSM_FLAG_OFSM_EVENT_QUEUED);
 #endif
-}
+}/*_ofsm_start*/
 
 static inline void _ofsm_check_timeout()
 {
     /*not need as it is called from within atomic block	OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { */
     //do nothing if infinite sleep
     if (_ofsmFlags & _OFSM_FLAG_INFINITE_SLEEP) {
-        //catch situation when new event was queued just before main loop went to sleep
+        //catch situation when new event was queued just before main loop went to sleep. Probably can be removed, need some analysis TBI:
         if (_ofsmFlags & _OFSM_FLAG_OFSM_EVENT_QUEUED) {
             _ofsmFlags &= ~_OFSM_FLAG_OFSM_EVENT_QUEUED;
             OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
@@ -860,14 +920,12 @@ static inline void _ofsm_check_timeout()
     if (_OFSM_TIME_A_GTE_B(_ofsmTime, (_ofsmFlags & _OFSM_FLAG_OFSM_TIMER_OVERFLOW), _ofsmWakeupTime, (_ofsmFlags & _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW))) {
         ofsm_queue_global_event(false, 0, 0); //this call will wakeup main loop
 
-#ifdef OFSM_CONFIG_SIMULATION_SCRIPT_MODE
-#   if OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE == 1
+#if OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE == 1
         OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
-#   endif
 #endif
     }
     /*	}*/
-}
+}/*_ofsm_check_timeout*/
 
 static inline void ofsm_heartbeat(_OFSM_TIME_DATA_TYPE currentTime)
 {
@@ -880,7 +938,7 @@ static inline void ofsm_heartbeat(_OFSM_TIME_DATA_TYPE currentTime)
         }
         _ofsm_check_timeout();
     }
-}
+}/*ofsm_heartbeat*/
 
 void _ofsm_queue_group_event(uint8_t groupIndex, OFSMGroup *group, bool forceNewEvent, uint8_t eventCode, OFSM_CONFIG_EVENT_DATA_TYPE eventData) {
     uint8_t copyNextEventIndex;
@@ -959,7 +1017,7 @@ void _ofsm_queue_group_event(uint8_t groupIndex, OFSMGroup *group, bool forceNew
         _ofsm_debug_printf(4,  "G(%i): currentEventIndex %i, nextEventIndex %i.\n", groupIndex, group->currentEventIndex, group->nextEventIndex);
     }
 #endif
-}
+}/*_ofsm_queue_group_event*/
 
 void ofsm_queue_group_event(uint8_t groupIndex, bool forceNewEvent, uint8_t eventCode, OFSM_CONFIG_EVENT_DATA_TYPE eventData)
 {
@@ -970,7 +1028,7 @@ void ofsm_queue_group_event(uint8_t groupIndex, bool forceNewEvent, uint8_t even
     }
 #endif
     _ofsm_queue_group_event(groupIndex, _ofsmGroups[groupIndex], forceNewEvent, eventCode, eventData);
-}
+}/*ofsm_queue_group_event*/
 
 void ofsm_queue_global_event(bool forceNewEvent, uint8_t eventCode, OFSM_CONFIG_EVENT_DATA_TYPE eventData) {
     uint8_t i;
@@ -981,7 +1039,7 @@ void ofsm_queue_global_event(bool forceNewEvent, uint8_t eventCode, OFSM_CONFIG_
         _ofsm_debug_printf(4,  "O: Event queuing group %i...\n", i);
         _ofsm_queue_group_event(i, group, forceNewEvent, eventCode, eventData);
     }
-}
+}/*ofsm_queue_global_event*/
 
 /*------------------------------------------------
 Simulation and non-simulation specific code
@@ -1144,15 +1202,44 @@ int _ofsm_simulation_check_for_assert(std::string &assertCompareString, int line
     return 0;
 }
 
+void setup();
+void loop();
+
+void _ofsm_simulation_fsm_thread(int ignore) {
+    setup();
+    loop();
+}/*_ofsm_simulation_fsm_thread*/
+
+void _ofsm_simulation_heartbeat_provider_thread(int tickSize) {
+    _OFSM_TIME_DATA_TYPE currentTime = 0;
+    while (1) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(tickSize));
+
+        OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
+            _OFSM_TIME_DATA_TYPE time;
+            ofsm_get_time(time, time);
+            if (time > currentTime) {
+                currentTime = time;
+            }
+            if (_ofsmFlags & _OFSM_FLAG_OFSM_SIMULATION_EXIT) {
+                OFSM_CONFIG_CUSTOM_WAKEUP_FUNC(); /*force wakeup of loop thread - release mutex*/
+                return;
+            }
+        }
+        currentTime++;
+        ofsm_heartbeat(currentTime);
+    }
+}/*_ofsm_simulation_heartbeat_provider_thread*/
+
 #ifdef _OFSM_IMPL_EVENT_GENERATOR
 void _ofsm_simulation_sleep_thread(int sleepMilliseconds) {
     std::this_thread::sleep_for(std::chrono::milliseconds(sleepMilliseconds));
-}
+}/*_ofsm_simulation_sleep_thread*/
 
 void _ofsm_simulation_sleep(int sleepMilliseconds) {
     std::thread sleepThread(_ofsm_simulation_sleep_thread, sleepMilliseconds);
     sleepThread.join();
-}
+}/*_ofsm_simulation_sleep*/
 
 
 int _ofsm_simulation_event_generator(const char *fileName) {
@@ -1221,8 +1308,6 @@ int _ofsm_simulation_event_generator(const char *fileName) {
             continue;
         }
 #endif
-
-
         //if line starts with digit, assume shorthand of 'queue' command: eventCode[,eventData[,groupIndex]]
         std::string digits = "0123456789";
         if (std::string::npos != digits.find(tokens[0])) {
@@ -1242,12 +1327,13 @@ int _ofsm_simulation_event_generator(const char *fileName) {
         break;
         case 'w':			//w[akeup]
         {
-#					if OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE > 0
-            OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
-#					endif
+#	        if OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE > 0
+                OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
+
+#	        endif
         }
         break;
-        case 's':			//s[leep][,sleepPeriod]
+        case 'd':			//d[elay][,sleepPeriod]
         {
             _OFSM_TIME_DATA_TYPE sleepPeriod = 0;
             if (tCount > 1) {
@@ -1333,7 +1419,7 @@ int _ofsm_simulation_event_generator(const char *fileName) {
             ofsm_heartbeat(currentTime);
         }
         break;
-        case 'r':			//r[eport][,groupIndex[,fsmIndex]]
+        case 's':			//s[tatus][,groupIndex[,fsmIndex]]
         {
             OFSMSimulationStatusReport report;
             uint8_t groupIndex = 0;
@@ -1351,6 +1437,27 @@ int _ofsm_simulation_event_generator(const char *fileName) {
             _ofsm_simulation_create_status_report(&report, groupIndex, fsmIndex);
 
             OFSM_CONFIG_CUSTOM_SIMULATION_CUSTOM_STATUS_REPORT_PRINTER_FUNC(&report);
+        }
+        break;
+        case 'r':			//r[eset]
+        {
+#	        ifdef OFSM_CONFIG_SIMULATION_SCRIPT_MODE
+                _ofsm_simulation_fsm_thread(0);
+#           else
+                OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
+                    _ofsmFlags |= (_OFSM_FLAG_OFSM_SIMULATION_EXIT | _OFSM_FLAG_OFSM_EVENT_QUEUED);
+                }
+                _ofsm_simulation_sleep(OFSM_CONFIG_SIMULATION_TICK_MS + 50);  /*wait until threads join*/
+                /*restart threads*/
+                //start fsm thread
+                std::thread fsmThread(_ofsm_simulation_fsm_thread, 0);
+                fsmThread.detach();
+                //start timer thread
+                std::thread heartbeatProviderThread(_ofsm_simulation_heartbeat_provider_thread, OFSM_CONFIG_SIMULATION_TICK_MS);
+                heartbeatProviderThread.detach();
+#	        endif /*OFSM_CONFIG_SIMULATION_SCRIPT_MODE*/
+                _ofsm_debug_printf(1, "OFMS has been restarted.\n");
+                continue;
         }
         break;
         default:			//Unrecognized command!!!
@@ -1374,35 +1481,8 @@ int _ofsm_simulation_event_generator(const char *fileName) {
     }
 
     return exitCode;
-}
+}/*_ofsm_simulation_event_generator*/
 #endif /* _OFSM_IMPL_EVENT_GENERATOR */
-void setup();
-void loop();
-
-void _ofsm_simulation_fsm_thread(int ignore) {
-    setup();
-    loop();
-}
-
-void _ofsm_simulation_heartbeat_provider_thread(int tickSize) {
-    _OFSM_TIME_DATA_TYPE currentTime = 0;
-    while (1) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(tickSize));
-
-        OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
-            _OFSM_TIME_DATA_TYPE time;
-            ofsm_get_time(time, time);
-            if (time > currentTime) {
-                currentTime = time;
-            }
-            if (_ofsmFlags & _OFSM_FLAG_OFSM_SIMULATION_EXIT) {
-                return;
-            }
-        }
-        currentTime++;
-        ofsm_heartbeat(currentTime);
-    }
-}
 
 int main(int argc, char* argv[])
 {
@@ -1437,18 +1517,19 @@ int main(int argc, char* argv[])
 
     //if returned assume exit
     OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
-        _ofsmFlags |= _OFSM_FLAG_OFSM_SIMULATION_EXIT;
+        _ofsmFlags |= (_OFSM_FLAG_OFSM_SIMULATION_EXIT | _OFSM_FLAG_OFSM_EVENT_QUEUED);
 #ifndef OFSM_CONFIG_SIMULATION_SCRIPT_MODE
         OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
 #endif
     }
-    _ofsm_simulation_sleep(500);
+    _ofsm_simulation_sleep(OFSM_CONFIG_SIMULATION_TICK_MS);
 
     return exitCode;
 }
 
 #else /* if not OFSM_CONFIG_SIMULATION*/
 
+//TBI:
 
 #endif /*OFSM_CONFIG_SIMULATION*/
 
@@ -1488,14 +1569,24 @@ Setup helper macros
 #define _OFSM_DECLARE_N(n, ...)\
     _OFSM_DECLARE_GROUP_ARRAY_##n(__VA_ARGS__);
 
-#define OFSM_DECLARE_FSM(fsmId, transitionTable, transitionTableEventCount, initializationHandler, fsmPrivateDataPtr) \
-    OFSM _ofsm_decl_fsm_##fsmId = {\
-            (OFSMTransition**)transitionTable, 	/*transitionTable*/ \
-            transitionTableEventCount,			/*transitionTableEventCount*/ \
-            initializationHandler,				/*initHandler*/ \
-            fsmPrivateDataPtr,					/*fsmPrivateInfo*/ \
-            _OFSM_FLAG_INFINITE_SLEEP           /*flags*/ \
-    };
+#ifdef OFSM_CONFIG_SUPPORT_INITIALIZATION_HANDLER
+#   define OFSM_DECLARE_FSM(fsmId, transitionTable, transitionTableEventCount, initializationHandler, fsmPrivateDataPtr) \
+        OFSM _ofsm_decl_fsm_##fsmId = {\
+                (OFSMTransition**)transitionTable, 	/*transitionTable*/ \
+                transitionTableEventCount,			/*transitionTableEventCount*/ \
+                initializationHandler,				/*initHandler*/ \
+                fsmPrivateDataPtr,					/*fsmPrivateInfo*/ \
+                _OFSM_FLAG_INFINITE_SLEEP           /*flags*/ \
+        };
+#else 
+#   define OFSM_DECLARE_FSM(fsmId, transitionTable, transitionTableEventCount, initializationHandler, fsmPrivateDataPtr) \
+        OFSM _ofsm_decl_fsm_##fsmId = {\
+                (OFSMTransition**)transitionTable, 	/*transitionTable*/ \
+                transitionTableEventCount,			/*transitionTableEventCount*/ \
+                fsmPrivateDataPtr,					/*fsmPrivateInfo*/ \
+                _OFSM_FLAG_INFINITE_SLEEP           /*flags*/ \
+        };
+#endif
 
 #define OFSM_DECLARE_GROUP_1(grpId, eventQueueSize, fsmId0) _OFSM_DECLARE_GROUP_N(1, grpId, eventQueueSize, fsmId0);
 #define OFSM_DECLARE_GROUP_2(grpId, eventQueueSize, fsmId0, fsmId1) _OFSM_DECLARE_GROUP_N(2, grpId, eventQueueSize, fsmId0, fsmId1);
