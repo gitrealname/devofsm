@@ -172,7 +172,7 @@ OFSM can be "shaped" in many different ways using configuration switches. NOTE: 
 #define OFSM_CONFIG_SIMULATION_TICK_MS 1000                  //Default 1000 milliseconds in one tick.
 #define OFSM_CONFIG_SIMULATION_SCRIPT_MODE_SLEEP_BETWEEN_EVENTS_MS 0     //Default 0. Sleep period (in milliseconds) before reading new simulation event. May be helpful in batch processing mode.
 #define OFSM_CONFIG_SIMULATION_SCRIPT_MODE					//Default undefined, When defined heartbeat is manually invoked. see PC SIMULATION SCRIPT MODE for details.
-#define OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE 0     //Default: 0 - (wakeup when queued); Other values: 1 - (wakeup explicitly by 'w[akeup]' command and timeout via 'h[eartbeat] command); 2 - (wakeup only by 'w[akeup]')
+#define OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE 0     //Default: 0 - (wakeup when queued, including timeout); Other values: 1 - (wakeup explicitly by 'w[akeup]' command and timeout via 'h[eartbeat] command); 2 - (wakeup only by 'w[akeup]')
 
 CUSTOMIZATION
 =============
@@ -831,6 +831,9 @@ void _ofsm_start() {
     _OFSM_TIME_DATA_TYPE groupEarliestWakeupTime;
     _OFSM_TIME_DATA_TYPE currentTime;
     uint8_t timeFlags;
+#ifdef OFSM_CONFIG_SIMULATION
+	bool doReturn = false;
+#endif 
 
     //start main loop
     do
@@ -839,11 +842,17 @@ void _ofsm_start() {
             _ofsmFlags |= _OFSM_FLAG_INFINITE_SLEEP; //prevents _ofsm_check_timeout() to ever accessing _ofsmWakeupTime and queue timeout while in process
             _ofsmFlags &= ~_OFSM_FLAG_OFSM_EVENT_QUEUED; //reset event queued flag
 #ifdef OFSM_CONFIG_SIMULATION
-            if (_ofsmFlags &_OFSM_FLAG_OFSM_SIMULATION_EXIT) {
-                return;
+			if (_ofsmFlags &_OFSM_FLAG_OFSM_SIMULATION_EXIT) {
+				doReturn = true; /*don't return or break here!!, or ATOMIC_BLOCK mutex will remain blocked*/
             }
 #endif
         }
+#ifdef OFSM_CONFIG_SIMULATION
+		if (doReturn) {
+			return;
+		}
+#endif
+
 
         andedFsmFlags = (uint8_t)0xFFFF;
         earliestWakeupTime = 0xFFFFFFFF;
@@ -892,7 +901,7 @@ void _ofsm_start() {
         _ofsm_debug_printf(4,  "O: Entering sleep... Wakeup Time %ld.\n", _ofsmFlags & _OFSM_FLAG_INFINITE_SLEEP ? -1 : _ofsmWakeupTime);
         OFSM_CONFIG_CUSTOM_ENTER_SLEEP_FUNC();
 
-        _ofsm_debug_printf(4,  "O: Waked up.\n");
+		_ofsm_debug_printf(4,  "O: Waked up.\n");
 #else
         _ofsm_debug_printf(4,  "O: Step through OFSM is complete.\n");
 #endif
@@ -903,42 +912,6 @@ void _ofsm_start() {
     } while(_ofsmFlags & _OFSM_FLAG_OFSM_EVENT_QUEUED);
 #endif
 }/*_ofsm_start*/
-
-static inline void _ofsm_check_timeout()
-{
-    /*not need as it is called from within atomic block	OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { */
-    //do nothing if infinite sleep
-    if (_ofsmFlags & _OFSM_FLAG_INFINITE_SLEEP) {
-        //catch situation when new event was queued just before main loop went to sleep. Probably can be removed, need some analysis TBI:
-        if (_ofsmFlags & _OFSM_FLAG_OFSM_EVENT_QUEUED) {
-            _ofsmFlags &= ~_OFSM_FLAG_OFSM_EVENT_QUEUED;
-            OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
-        }
-        return;
-    }
-
-    if (_OFSM_TIME_A_GTE_B(_ofsmTime, (_ofsmFlags & _OFSM_FLAG_OFSM_TIMER_OVERFLOW), _ofsmWakeupTime, (_ofsmFlags & _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW))) {
-        ofsm_queue_global_event(false, 0, 0); //this call will wakeup main loop
-
-#if OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE == 1
-        OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
-#endif
-    }
-    /*	}*/
-}/*_ofsm_check_timeout*/
-
-static inline void ofsm_heartbeat(_OFSM_TIME_DATA_TYPE currentTime)
-{
-    _OFSM_TIME_DATA_TYPE prevTime;
-    OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
-        prevTime = _ofsmTime;
-        _ofsmTime = currentTime;
-        if (_ofsmTime < prevTime) {
-            _ofsmFlags |= _OFSM_FLAG_OFSM_TIMER_OVERFLOW;
-        }
-        _ofsm_check_timeout();
-    }
-}/*ofsm_heartbeat*/
 
 void _ofsm_queue_group_event(uint8_t groupIndex, OFSMGroup *group, bool forceNewEvent, uint8_t eventCode, OFSM_CONFIG_EVENT_DATA_TYPE eventData) {
     uint8_t copyNextEventIndex;
@@ -1002,7 +975,7 @@ void _ofsm_queue_group_event(uint8_t groupIndex, OFSMGroup *group, bool forceNew
     }
 #ifdef OFSM_CONFIG_SIMULATION_SCRIPT_MODE
 #   if OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE == 0
-    OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
+		OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
 #   endif
 #else
     OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
@@ -1040,6 +1013,42 @@ void ofsm_queue_global_event(bool forceNewEvent, uint8_t eventCode, OFSM_CONFIG_
         _ofsm_queue_group_event(i, group, forceNewEvent, eventCode, eventData);
     }
 }/*ofsm_queue_global_event*/
+
+static inline void _ofsm_check_timeout()
+{
+	/*not need as it is called from within atomic block	OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { */
+	//do nothing if infinite sleep
+	if (_ofsmFlags & _OFSM_FLAG_INFINITE_SLEEP) {
+		//catch situation when new event was queued just before main loop went to sleep. Probably can be removed, need some analysis TBI:
+		if (_ofsmFlags & _OFSM_FLAG_OFSM_EVENT_QUEUED) {
+			_ofsmFlags &= ~_OFSM_FLAG_OFSM_EVENT_QUEUED;
+			OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
+		}
+		return;
+	}
+
+	if (_OFSM_TIME_A_GTE_B(_ofsmTime, (_ofsmFlags & _OFSM_FLAG_OFSM_TIMER_OVERFLOW), _ofsmWakeupTime, (_ofsmFlags & _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW))) {
+		ofsm_queue_global_event(false, 0, 0); //this call will wakeup main loop
+
+#if OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE == 1 /*in this mode ofsm_queue_... will not wakeup*/
+		OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
+#endif
+	}
+	/*	}*/
+}/*_ofsm_check_timeout*/
+
+static inline void ofsm_heartbeat(_OFSM_TIME_DATA_TYPE currentTime)
+{
+	_OFSM_TIME_DATA_TYPE prevTime;
+	OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
+		prevTime = _ofsmTime;
+		_ofsmTime = currentTime;
+		if (_ofsmTime < prevTime) {
+			_ofsmFlags |= _OFSM_FLAG_OFSM_TIMER_OVERFLOW;
+		}
+		_ofsm_check_timeout();
+	}
+}/*ofsm_heartbeat*/
 
 /*------------------------------------------------
 Simulation and non-simulation specific code
@@ -1181,8 +1190,8 @@ void _ofsm_simulation_enter_sleep() {
 void _ofsm_simulation_wakeup() {
 #   ifndef OFSM_CONFIG_SIMULATION_SCRIPT_MODE
     std::unique_lock<std::mutex> lk(cvm);
-    lk.unlock();
-    cv.notify_one();
+	cv.notify_one();
+	lk.unlock();
 #   else
     //in script mode call _ofsm_start() directly; it will return
     _ofsm_start();
@@ -1208,10 +1217,14 @@ void loop();
 void _ofsm_simulation_fsm_thread(int ignore) {
     setup();
     loop();
+#ifndef OFSM_CONFIG_SIMULATION_SCRIPT
+	_ofsm_debug_printf(1, "Exiting Loop thread...\n");
+#endif 
 }/*_ofsm_simulation_fsm_thread*/
 
 void _ofsm_simulation_heartbeat_provider_thread(int tickSize) {
     _OFSM_TIME_DATA_TYPE currentTime = 0;
+	bool doReturn = false;
     while (1) {
         std::this_thread::sleep_for(std::chrono::milliseconds(tickSize));
 
@@ -1222,10 +1235,15 @@ void _ofsm_simulation_heartbeat_provider_thread(int tickSize) {
                 currentTime = time;
             }
             if (_ofsmFlags & _OFSM_FLAG_OFSM_SIMULATION_EXIT) {
-                OFSM_CONFIG_CUSTOM_WAKEUP_FUNC(); /*force wakeup of loop thread - release mutex*/
-                return;
+				doReturn = true; /*don't return here, as simulation ATOMIC_BLOCK mutex will remain blocked*/
             }
         }
+		if (doReturn) {
+#ifndef OFSM_CONFIG_SIMULATION_SCRIPT
+			_ofsm_debug_printf(1, "Exiting Heartbeat provider thread...\n");
+#endif 
+			return;
+		}
         currentTime++;
         ofsm_heartbeat(currentTime);
     }
@@ -1329,8 +1347,10 @@ int _ofsm_simulation_event_generator(const char *fileName) {
         {
 #	        if OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE > 0
                 OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
-
-#	        endif
+#	        else
+				printf("ASSERT at line: %i: wakeup command is ignored unless OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE > 0.\n", lineNumber);
+				continue;
+#			endif
         }
         break;
         case 'd':			//d[elay][,sleepPeriod]
@@ -1441,24 +1461,8 @@ int _ofsm_simulation_event_generator(const char *fileName) {
         break;
         case 'r':			//r[eset]
         {
-#	        ifdef OFSM_CONFIG_SIMULATION_SCRIPT_MODE
-                _ofsm_simulation_fsm_thread(0);
-#           else
-                OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
-                    _ofsmFlags |= (_OFSM_FLAG_OFSM_SIMULATION_EXIT | _OFSM_FLAG_OFSM_EVENT_QUEUED);
-                }
-                _ofsm_simulation_sleep(OFSM_CONFIG_SIMULATION_TICK_MS + 50);  /*wait until threads join*/
-                /*restart threads*/
-                //start fsm thread
-                std::thread fsmThread(_ofsm_simulation_fsm_thread, 0);
-                fsmThread.detach();
-                //start timer thread
-                std::thread heartbeatProviderThread(_ofsm_simulation_heartbeat_provider_thread, OFSM_CONFIG_SIMULATION_TICK_MS);
-                heartbeatProviderThread.detach();
-#	        endif /*OFSM_CONFIG_SIMULATION_SCRIPT_MODE*/
-                _ofsm_debug_printf(1, "OFMS has been restarted.\n");
-                continue;
-        }
+			return -1; /*repeat main loop*/
+		}
         break;
         default:			//Unrecognized command!!!
         {
@@ -1486,45 +1490,55 @@ int _ofsm_simulation_event_generator(const char *fileName) {
 
 int main(int argc, char* argv[])
 {
+	int retCode = 0;
+	do {
 #ifndef OFSM_CONFIG_SIMULATION_SCRIPT_MODE
-    //start fsm thread
-    std::thread fsmThread(_ofsm_simulation_fsm_thread, 0);
-    fsmThread.detach();
+		//start fsm thread
+		std::thread fsmThread(_ofsm_simulation_fsm_thread, 0);
+		fsmThread.detach();
 
-    //start timer thread
-    std::thread heartbeatProviderThread(_ofsm_simulation_heartbeat_provider_thread, OFSM_CONFIG_SIMULATION_TICK_MS);
-    heartbeatProviderThread.detach();
+		//start timer thread
+		std::thread heartbeatProviderThread(_ofsm_simulation_heartbeat_provider_thread, OFSM_CONFIG_SIMULATION_TICK_MS);
+		heartbeatProviderThread.detach();
 #else
-    //perform setup and make first iteration through the OFSM
-    _ofsm_simulation_fsm_thread(0);
+		//perform setup and make first iteration through the OFSM
+		_ofsm_simulation_fsm_thread(0);
 #endif
 
-    char *scriptFileName = NULL;
-    if (argc > 1) {
-        switch (argc) {
-            case 2:
-                scriptFileName = argv[1];
-                break;
-            default:
-                std::cerr << "Too many argument. Exiting..." << std::endl;
-                return 1;
-                break;
-        }
-    }
+		char *scriptFileName = NULL;
+		if (argc > 1) {
+			switch (argc) {
+			case 2:
+				scriptFileName = argv[1];
+				break;
+			default:
+				std::cerr << "Too many argument. Exiting..." << std::endl;
+				return 1;
+				break;
+			}
+		}
 
-    //call event generator
-    int exitCode = OFSM_CONFIG_CUSTOM_SIMULATION_EVENT_GENERATOR_FUNC(scriptFileName);
+		//call event generator
+		retCode = OFSM_CONFIG_CUSTOM_SIMULATION_EVENT_GENERATOR_FUNC(scriptFileName);
 
-    //if returned assume exit
-    OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
-        _ofsmFlags |= (_OFSM_FLAG_OFSM_SIMULATION_EXIT | _OFSM_FLAG_OFSM_EVENT_QUEUED);
+		//if returned assume exit
+		OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
+			_ofsmFlags = (_OFSM_FLAG_OFSM_SIMULATION_EXIT | _OFSM_FLAG_OFSM_EVENT_QUEUED);
 #ifndef OFSM_CONFIG_SIMULATION_SCRIPT_MODE
-        OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
+			OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
 #endif
-    }
-    _ofsm_simulation_sleep(OFSM_CONFIG_SIMULATION_TICK_MS);
+		}
+		
+		_ofsm_debug_printf(1, "Waiting for %i milliseconds for all threads to exit...\n", OFSM_CONFIG_SIMULATION_TICK_MS);
+		_ofsm_simulation_sleep(OFSM_CONFIG_SIMULATION_TICK_MS + 10); /*let heartbeat provider thread to exit before starting new thread*/
 
-    return exitCode;
+		if (retCode < 0) {
+			_ofsm_debug_printf(1, "Reseting...\n");
+		}
+
+} while (retCode < 0);
+
+    return retCode;
 }
 
 #else /* if not OFSM_CONFIG_SIMULATION*/
