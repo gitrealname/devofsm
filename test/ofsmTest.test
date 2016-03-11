@@ -1,7 +1,12 @@
-queue,1
-report
-queue,2
-report
-queue,3
-report
-sleep,5000 //sleep for 5 secs before exiting
+//OFSM unit tests.
+//States: 
+//  0 - S0
+//  1 - S1
+//Events: 
+//  0 - Timeout
+//  1 - NormalTransition
+//  2 - PreventTransition
+//  3 - InfiniteDelay
+//----------------------------------------------
+p, Test Case #1: Initial state: queues are empty, sitting in state 0 in infinite sleep
+status          

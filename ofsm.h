@@ -389,16 +389,16 @@ OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { \
             } \
         }
 #else
-#   define _ofsm_debug_printf(level,  ...) \
+#   define ofsm_debug_printf(level,  ...) \
         if (level <= OFSM_CONFIG_SIMULATION_DEBUG_LEVEL) { \
             OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { \
-                printf(__VA_ARGS__) \
+                printf(__VA_ARGS__); \
             } \
         }
 #   define _ofsm_debug_printf(level,  ...) \
         if (level <= OFSM_CONFIG_SIMULATION_DEBUG_LEVEL_OFSM) { \
             OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { \
-                printf(__VA_ARGS__) \
+                printf(__VA_ARGS__); \
             } \
         }
 #endif // OFSM_CONFIG_SIMULATION_DEBUG_PRINT_ADD_TIMESTAMP
@@ -925,14 +925,14 @@ void _ofsm_start() {
 void _ofsm_queue_group_event(uint8_t groupIndex, OFSMGroup *group, bool forceNewEvent, uint8_t eventCode, OFSM_CONFIG_EVENT_DATA_TYPE eventData) {
     uint8_t copyNextEventIndex;
     OFSMEventData *event;
-#if OFSM_CONFIG_SIMULATION_DEBUG_LEVEL_OFSM > 0
+#ifdef OFSM_CONFIG_SIMULATION
     uint8_t debugFlags = 0x1; //set buffer overflow
 #endif
     OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
         copyNextEventIndex = group->nextEventIndex;
 
         if (!(group->flags & _OFSM_FLAG_GROUP_BUFFER_OVERFLOW)) {
-#if OFSM_CONFIG_SIMULATION_DEBUG_LEVEL_OFSM > 0
+#ifdef OFSM_CONFIG_SIMULATION
             debugFlags = 0; //remove buffer overflow
 #endif
             if (group->nextEventIndex == group->currentEventIndex) {
@@ -956,7 +956,7 @@ void _ofsm_queue_group_event(uint8_t groupIndex, OFSMGroup *group, bool forceNew
 #ifdef OFSM_CONFIG_SUPPORT_EVENT_DATA
                 event->eventData = eventData;
 #endif
-#if OFSM_CONFIG_SIMULATION_DEBUG_LEVEL_OFSM > 0
+#ifdef OFSM_CONFIG_SIMULATION
                 debugFlags |= 0x2; //set event replaced flag
 #endif
             }
