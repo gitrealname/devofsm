@@ -173,7 +173,13 @@ OFSM can be "shaped" in many different ways using configuration switches. NOTE: 
 #define OFSM_CONFIG_SIMULATION_TICK_MS 1000                  //Default 1000 milliseconds in one tick.
 #define OFSM_CONFIG_SIMULATION_SCRIPT_MODE_SLEEP_BETWEEN_EVENTS_MS 0     //Default 0. Sleep period (in milliseconds) before reading new simulation event. May be helpful in batch processing mode.
 #define OFSM_CONFIG_SIMULATION_SCRIPT_MODE					//Default undefined, When defined heartbeat is manually invoked. see PC SIMULATION SCRIPT MODE for details.
-#define OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE 0     //Default: 0 - (wakeup when queued, including timeout); Other values: 1 - (wakeup explicitly by 'w[akeup]' command and timeout via 'h[eartbeat] command); 2 - (wakeup only by 'w[akeup]')
+
+//Default: 0 - (wakeup when queued, including timeout); 
+//	Other values: 
+//		1 - wakeup explicitly by 'w[akeup]' command and timeout via 'h[eartbeat] command; 
+//		2 - wakeup only by 'w[akeup]'
+//		3 - wakeup only by 'w[akeup]' and process only one event per step
+#define OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE 0     
 
 CUSTOMIZATION
 =============
@@ -911,15 +917,15 @@ void _ofsm_start() {
         OFSM_CONFIG_CUSTOM_ENTER_SLEEP_FUNC();
 
         _ofsm_debug_printf(4,  "O: Waked up.\n");
+	} while (1);
 #else
-        _ofsm_debug_printf(4,  "O: Step through OFSM is complete.\n");
+#	if OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE > 2
+		break; /*process single event per step*/
+#	endif
+	} while (_ofsmFlags & _OFSM_FLAG_OFSM_EVENT_QUEUED);
+	_ofsm_debug_printf(4, "O: Step through OFSM is complete.\n");
 #endif
 
-#ifndef OFSM_CONFIG_SIMULATION_SCRIPT_MODE
-    } while (1);
-#else
-    } while(_ofsmFlags & _OFSM_FLAG_OFSM_EVENT_QUEUED);
-#endif
 }/*_ofsm_start*/
 
 void _ofsm_queue_group_event(uint8_t groupIndex, OFSMGroup *group, bool forceNewEvent, uint8_t eventCode, OFSM_CONFIG_EVENT_DATA_TYPE eventData) {
@@ -1004,9 +1010,9 @@ void _ofsm_queue_group_event(uint8_t groupIndex, OFSMGroup *group, bool forceNew
     }
     else {
 #ifdef OFSM_CONFIG_SUPPORT_EVENT_DATA
-        _ofsm_debug_printf(3,  "G(%i): Queued eventEvent %i (Updated %i, Set buffer overflow %i).\n", groupIndex, eventCode, eventData, eventData, (debugFlags & 0x2) > 0, (group->flags & _OFSM_FLAG_GROUP_BUFFER_OVERFLOW) > 0);
+        _ofsm_debug_printf(3,  "G(%i): Queued eventCode %i eventData %i(0x%08X) (Updated %i, Set buffer overflow %i).\n", groupIndex, eventCode, eventData, eventData, (debugFlags & 0x2) > 0, (group->flags & _OFSM_FLAG_GROUP_BUFFER_OVERFLOW) > 0);
 #else
-        _ofsm_debug_printf(3,  "G(%i): Queued eventEvent %i (0x%08X) (Updated %i, Set buffer overflow %i).\n", groupIndex, eventCode, (debugFlags & 0x2) > 0, (group->flags & _OFSM_FLAG_GROUP_BUFFER_OVERFLOW) > 0);
+        _ofsm_debug_printf(3,  "G(%i): Queued eventCode %i (Updated %i, Set buffer overflow %i).\n", groupIndex, eventCode, (debugFlags & 0x2) > 0, (group->flags & _OFSM_FLAG_GROUP_BUFFER_OVERFLOW) > 0);
 #endif
 
         _ofsm_debug_printf(4,  "G(%i): currentEventIndex %i, nextEventIndex %i.\n", groupIndex, group->currentEventIndex, group->nextEventIndex);
@@ -1285,21 +1291,19 @@ void _ofsm_simulation_sleep(int sleepMilliseconds) {
     sleepThread.join();
 }/*_ofsm_simulation_sleep*/
 
+int lineNumber = 0;
+std::ifstream fileStream;
 
 int _ofsm_simulation_event_generator(const char *fileName) {
     std::string line;
-    std::ifstream fileStream;
     int exitCode = 0;
-    int lineNumber = 0;
     std::string assertCompareString;
 
-    //fileName = "D:/Work/devofsm/test/ofsm.test";
-
-    if (fileName) {
+ 	//in case of reset we don't need to open file again
+	if (fileName && !lineNumber) {
         fileStream.open(fileName);
         std::cin.rdbuf(fileStream.rdbuf());
     }
-
     while (!std::cin.eof())
     {
 
@@ -1309,7 +1313,6 @@ int _ofsm_simulation_event_generator(const char *fileName) {
         trim(line);
 
         //prepare for parsing
-        std::stringstream strStream(line);
         std::string t;
         std::deque<std::string> tokens;
 
@@ -1319,26 +1322,42 @@ int _ofsm_simulation_event_generator(const char *fileName) {
             line.replace(commentPos, line.length(), "");
         }
 
-        //get assert string unless p command
-        t = line;
-        trim(t);
-        toLower(t);
+        //skip empty lines
+		if (!line.length()) {
+			continue;
+		}
+		
+		//get assert string or print string (preserving case)
+		t = line;
+		toLower(t);
         assertCompareString = "";
         if (0 != t.find("p")) {
+			/*it is not print, get assert*/
             std::size_t assertComparePos = line.find("=");
             if (assertComparePos != std::string::npos) {
                 assertCompareString = line.substr(assertComparePos + 1);
                 trim(assertCompareString);
                 line.replace(assertComparePos, line.length(), "");
             }
-        }
+		}
+		//handle p[rint][,<string to be printed>] ...... command (preserver case)
+		else {
+			std::size_t commaPos = line.find(",");
+			if (commaPos != std::string::npos) {
+				assertCompareString = line.substr(commaPos + 1);
+			}
+			std::cout << assertCompareString << std::endl;
+			continue;
+		}
+
         //convert commands to lower case
         toLower(line);
+		std::stringstream strStream(line);
 
         //parse by tokens
-        while (std::getline(strStream, t, ',')) {
-            if (t.find_first_not_of(' ') >= 0) {
-                tokens.push_back(trim(t));
+        while (std::getline(strStream, line, ',')) {
+            if (line.find_first_not_of(' ') >= 0) {
+                tokens.push_back(trim(line));
             }
         }
 
@@ -1393,16 +1412,8 @@ int _ofsm_simulation_event_generator(const char *fileName) {
             continue;
         }
         break;
-        case 'p':			//p[rint][,<string to be printed>]
-        {
-            std::string  str = "";
-            if (tCount > 1) {
-                str = tokens[1];
-            }
-            std::cout << str << std::endl;
-            continue;
-        }
-        break;
+//        case 'p':			//p[rint]
+//        break;
         case 'q':			//q[ueue][,[mods],eventCode[,eventData[,groupIndex]]]
         {
             uint8_t eventCode = 0;

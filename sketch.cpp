@@ -48,6 +48,41 @@ void handlerE3Failure(OFSMState *fsm) {
 enum Event { Timeout, E1, E2, E3 };
 enum State { S0, S1 };
 
+//IN DEVEVLOPMENT
+#define  _OFSM_DECLARE_FSM(fsmId, stateCount, eventCount, initializationHandler, fsmPrivateDataPtr) \
+		OFSMTransition *_ofsm_transition_table_##fsmId[stateCount * eventCount];\
+		uint8_t _ofsm_event_count_##fsmId = eventCount; \
+        OFSM _ofsm_declare_fsm_##fsmId = {\
+                (OFSMTransition**) _ofsm_transition_table_##fsmId, 	/*transitionTable*/ \
+                eventCount,											/*transitionTableEventCount*/ \
+                fsmPrivateDataPtr,									/*fsmPrivateInfo*/ \
+                _OFSM_FLAG_INFINITE_SLEEP							/*flags*/ \
+        };
+
+#define OFSM_DECLARE_FSM_TRANSITION(fsmId, stateId, eventId, handler, transitionToState) \
+	OFSMTransition _ofsm_t_##fsmId_##stateId_##eventId = {handler, transitionToState}; \
+	_ofsm_transition_table_##fsmId[_ofsm_event_count_##fsmId  * stateId + eventId] = &_ofsm_t_##fsmId_##stateId_##eventId;
+
+
+/*AAA*/
+//_OFSM_DECLARE_FSM(0, 2, 4, NULL, NULL);
+//_OFSM_DECLARE_FSM(0, 2, 4, NULL, NULL);
+//	OFSM_DECLARE_FSM_TRANSITION(0, S0, Timeout, handlerTimeout, S0);
+//	OFSM_DECLARE_FSM_TRANSITION(0, S0, Timeout, handlerTimeout, S0);
+
+//_OFSM_DECLARE_FSM(0, 2, 4, NULL, NULL);
+OFSMTransition *a[2 * 4]; 
+uint8_t b = 4; 
+OFSM _ofsm_declare_fsm_0 = { (OFSMTransition**)a, 4, 0, 0x1 };;
+//	OFSM_DECLARE_FSM_TRANSITION(0, S0, Timeout, handlerTimeout, S0);
+OFSMTransition _ofsm_t_fsmId_stateId_Timeout = { handlerTimeout, S0 }; 
+{
+	a[b * S0 + Timeout] = &_ofsm_t_fsmId_stateId_Timeout;;
+}
+
+
+
+
 /*-----------------------------------
 Initialization
 ---------------------------------*/

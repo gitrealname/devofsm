@@ -4,7 +4,7 @@
 /*configure script (unit test) mode simulation*/
 #   define OFSM_CONFIG_SIMULATION                            /* turn on simulation mode */
 #   define OFSM_CONFIG_SIMULATION_SCRIPT_MODE                /* run main loop synchronously */
-#   define OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE 2  /* 0 - wakeup when event queued; 1 - wakeup on timeout from heartbeat; 2 - manual wakeup (use command 'wakeup') */
+#   define OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE 3  /* 0 - wakeup when event queued; 1 - wakeup on timeout from heartbeat; 2 - manual wakeup (use command 'wakeup'); 3- manual, one event per step*/
 #   define OFSM_CONFIG_SIMULATION_DEBUG_LEVEL 0              /* turn off sketch debug print */
 #   define OFSM_CONFIG_SIMULATION_DEBUG_LEVEL_OFSM 0         /* turn off ofsm debug print */
 #   define OFSM_CONFIG_SIMULATION_SCRIPT_MODE_SLEEP_BETWEEN_EVENTS_MS 0 /* don't sleep between script commands */
@@ -23,7 +23,7 @@
 
 #define EVENT_QUEUE_SIZE 3 /*event queue size*/
 
-#include "..\ofsm.h"
+#include "../ofsm.h"
 
 /*define events*/
 enum Events {Timeout = 0, NormalTransition, PreventTransition, InfiniteDelay};
@@ -52,7 +52,6 @@ void setup() {
 }
 
 void loop() {
-
 	OFSM_LOOP();
 }
 
