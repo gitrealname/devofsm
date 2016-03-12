@@ -20,7 +20,7 @@ queue,1		//first event
 queue,1		//the same event, group event count is expected to be 1
 status = -O[I]-G(0)[.,001]-F(0)[Ipo]-S(0)-TW[0000000000.,O:0000000000.,F:0000000000.]
 p
-p,--- When event if forced it taken space in event queue.
+p,--- When event is forced it takes new space in event queue.
 reset
 queue,1,0,0	 //queue Normal transition event
 queue,f,1,0  //force new event even though event is the same. Group event count expected to be 2.

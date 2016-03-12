@@ -71,16 +71,21 @@ enum State { S0, S1 };
 //	OFSM_DECLARE_FSM_TRANSITION(0, S0, Timeout, handlerTimeout, S0);
 
 //_OFSM_DECLARE_FSM(0, 2, 4, NULL, NULL);
-OFSMTransition *a[2 * 4]; 
-uint8_t b = 4; 
-OFSM _ofsm_declare_fsm_0 = { (OFSMTransition**)a, 4, 0, 0x1 };;
-//	OFSM_DECLARE_FSM_TRANSITION(0, S0, Timeout, handlerTimeout, S0);
-OFSMTransition _ofsm_t_fsmId_stateId_Timeout = { handlerTimeout, S0 }; 
-{
-	a[b * S0 + Timeout] = &_ofsm_t_fsmId_stateId_Timeout;;
-}
 
+//OFSMTransition *a[2 * 4]; 
+//uint8_t b = 4; 
+//OFSM _ofsm_declare_fsm_0 = { (OFSMTransition**)a, 4, 0, 0x1 };;
+////	OFSM_DECLARE_FSM_TRANSITION(0, S0, Timeout, handlerTimeout, S0);
+//OFSMTransition _ofsm_t_fsmId_stateId_Timeout = { handlerTimeout, S0 }; 
+//{
+//	a[b * S0 + Timeout] = &_ofsm_t_fsmId_stateId_Timeout;;
+//}
 
+char string_1[]  = "String 1";
+
+char* string_table[]{
+	string_1
+};
 
 
 /*-----------------------------------
