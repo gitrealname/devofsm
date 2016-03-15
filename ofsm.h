@@ -804,6 +804,7 @@ void _ofsm_setup() {
         for (k = 0; k < group->groupSize; k++) {
             fsm = (group->fsms)[k];
             fsm->flags = _OFSM_FLAG_INFINITE_SLEEP;
+            fsm->currentState = 0;
         }
     }
 #else
@@ -1566,14 +1567,14 @@ int main(int argc, char* argv[])
 #endif
         }
         
-        _ofsm_debug_printf(1, "Waiting for %i milliseconds for all threads to exit...\n", OFSM_CONFIG_SIMULATION_TICK_MS);
+        _ofsm_debug_printf(3, "Waiting for %i milliseconds for all threads to exit...\n", OFSM_CONFIG_SIMULATION_TICK_MS);
         _ofsm_simulation_sleep(OFSM_CONFIG_SIMULATION_TICK_MS + 10); /*let heartbeat provider thread to exit before starting new thread*/
 
         if (retCode < 0) {
             _ofsm_debug_printf(1, "Reseting...\n");
         }
 
-} while (retCode < 0);
+    } while (retCode < 0);
 
     return retCode;
 }
