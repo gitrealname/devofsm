@@ -70,7 +70,7 @@ status = -O[i]-G(0)[.,001]-F(0)[ipo]-S(0)-TW[0000000001.,O:0000000001.,F:0000000
 wakeup  //let FSM process an event, it should result in transition S0 -> S1; since S1 doesn't have timeout handler, FSM is expected to get into Infinite sleep.
 status = -O[I]-G(0)[.,000]-F(0)[Ipo]-S(1)-TW[0000000001.,O:0000000000.,F:0000000000.]
 reset
-p, --- When handler calls fsm_prevent_transition() - no transition should take place and wakeup time should not change unless it is modified by handler.
+p, --- When handler calls fsm_prevent_transition() - no transition should take place and wakeup time should not change.
 queue,1  //from S0 -> S1, which doesn't have timeout handler
 wakeup   //make one step through FSM
 queue,1  //from S1 -> S0, timeout is determined by OFSM_CONFIG_DEFAULT_STATE_TRANSITION_DELAY which is expected to be = 1

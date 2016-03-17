@@ -1,0 +1,19 @@
+//ofsmBlink unit tests.
+//Compiler Command line: 
+//Event queue size = 1;
+//States: 
+//  0 - On
+//  1 - Off
+//Events: 
+//  0 - Timeout
+//----------------------------------------------
+
+p,--- Test 1.
+// test command goes here
+reset //cleanup after self
+p
+p,--- Test 2.
+// test command goes here
+reset 
+
+exit
