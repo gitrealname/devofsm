@@ -918,13 +918,13 @@ void _ofsm_start() {
         OFSM_CONFIG_CUSTOM_ENTER_SLEEP_FUNC();
 
         _ofsm_debug_printf(4,  "O: Waked up.\n");
-	} while (1);
+    } while (1);
 #else
 #	if OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE > 2
-		break; /*process single event per step*/
+        break; /*process single event per step*/
 #	endif
-	} while (_ofsmFlags & _OFSM_FLAG_OFSM_EVENT_QUEUED);
-	_ofsm_debug_printf(4, "O: Step through OFSM is complete.\n");
+    } while (_ofsmFlags & _OFSM_FLAG_OFSM_EVENT_QUEUED);
+    _ofsm_debug_printf(4, "O: Step through OFSM is complete.\n");
 #endif
 
 }/*_ofsm_start*/
@@ -1300,8 +1300,8 @@ int _ofsm_simulation_event_generator(const char *fileName) {
     int exitCode = 0;
     std::string assertCompareString;
 
- 	//in case of reset we don't need to open file again
-	if (fileName && !lineNumber) {
+    //in case of reset we don't need to open file again
+    if (fileName && !lineNumber) {
         fileStream.open(fileName);
         std::cin.rdbuf(fileStream.rdbuf());
     }
@@ -1324,36 +1324,36 @@ int _ofsm_simulation_event_generator(const char *fileName) {
         }
 
         //skip empty lines
-		if (!line.length()) {
-			continue;
-		}
-		
-		//get assert string or print string (preserving case)
-		t = line;
-		toLower(t);
+        if (!line.length()) {
+            continue;
+        }
+        
+        //get assert string or print string (preserving case)
+        t = line;
+        toLower(t);
         assertCompareString = "";
         if (0 != t.find("p")) {
-			/*it is not print, get assert*/
+            /*it is not print, get assert*/
             std::size_t assertComparePos = line.find("=");
             if (assertComparePos != std::string::npos) {
                 assertCompareString = line.substr(assertComparePos + 1);
                 trim(assertCompareString);
                 line.replace(assertComparePos, line.length(), "");
             }
-		}
-		//handle p[rint][,<string to be printed>] ...... command (preserver case)
-		else {
-			std::size_t commaPos = line.find(",");
-			if (commaPos != std::string::npos) {
-				assertCompareString = line.substr(commaPos + 1);
-			}
-			std::cout << assertCompareString << std::endl;
-			continue;
-		}
+        }
+        //handle p[rint][,<string to be printed>] ...... command (preserver case)
+        else {
+            std::size_t commaPos = line.find(",");
+            if (commaPos != std::string::npos) {
+                assertCompareString = line.substr(commaPos + 1);
+            }
+            std::cout << assertCompareString << std::endl;
+            continue;
+        }
 
         //convert commands to lower case
         toLower(line);
-		std::stringstream strStream(line);
+        std::stringstream strStream(line);
 
         //parse by tokens
         while (std::getline(strStream, line, ',')) {
@@ -1567,11 +1567,13 @@ int main(int argc, char* argv[])
 #endif
         }
         
+#ifndef OFSM_CONFIG_SIMULATION_SCRIPT_MODE
         _ofsm_debug_printf(3, "Waiting for %i milliseconds for all threads to exit...\n", OFSM_CONFIG_SIMULATION_TICK_MS);
         _ofsm_simulation_sleep(OFSM_CONFIG_SIMULATION_TICK_MS + 10); /*let heartbeat provider thread to exit before starting new thread*/
+#endif
 
         if (retCode < 0) {
-            _ofsm_debug_printf(1, "Reseting...\n");
+            _ofsm_debug_printf(3, "Reseting...\n");
         }
 
     } while (retCode < 0);
