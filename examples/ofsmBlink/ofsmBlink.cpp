@@ -1,4 +1,3 @@
-#define TEST
 #ifdef TEST
 /*configure script (unit test) mode simulation*/
 #   define OFSM_CONFIG_SIMULATION                            /* turn on simulation mode */
@@ -7,7 +6,7 @@
 #   define OFSM_CONFIG_SIMULATION_DEBUG_LEVEL 0              /* turn off sketch debug print */
 #   define OFSM_CONFIG_SIMULATION_DEBUG_LEVEL_OFSM 0         /* turn off ofsm debug print */
 #   define OFSM_CONFIG_SIMULATION_SCRIPT_MODE_SLEEP_BETWEEN_EVENTS_MS 0 /* don't sleep between script commands */
-#   define OFSM_CONFIG_DEFAULT_STATE_TRANSITION_DELAY 0     /* make 1 tick as default delay between transitions */
+#   define OFSM_CONFIG_DEFAULT_STATE_TRANSITION_DELAY 0     /* make 0 tick as default delay between transitions */
 #else 
 /* When F_CPU is defined, we can be confident that sketch is being compiled to be flushed into MCU, otherwise we assume SIMULATION mode */
 #   ifndef F_CPU
@@ -22,7 +21,7 @@
 
 #define EVENT_QUEUE_SIZE 1 /*event queue size*/
 
-#include "../../ofsm.h"
+#include <ofsm.h>
 
 /*define events*/
 enum Events {Timeout = 0};
@@ -37,8 +36,8 @@ void OffHandler(OFSMState *fsms);
 /* OFSM configuration */
 OFSMTransition transitionTable[][1 + Timeout] = {
     /* Timeout*/
-    { { OnHandler,  Off } }, //On State
-    { { OffHandler,	On  } }  //Off State
+    { { OnHandler,  Off } }, /*On State*/
+    { { OffHandler,	On  } }  /*Off State*/
 };
 
 OFSM_DECLARE_FSM(DefaultFsm, transitionTable, 1 + Timeout, NULL, NULL);
@@ -46,29 +45,39 @@ OFSM_DECLARE_GROUP_1(MainGroup, EVENT_QUEUE_SIZE, DefaultFsm);
 OFSM_DECLARE_1(MainGroup);
 
 #define ledPin 13
-#define ticksOn  2 //number of ticks to be in On state
-#define ticksOff 1 //number of ticks to be in Off state
+#define ticksOn  2 /*number of ticks to be in On state*/
+#define ticksOff 1 /*number of ticks to be in Off state*/
 
 /* Setup */
 void setup() {
-    //prevent MCU specific code during simulation
-#ifndef OFSM_CONFIG_SIMULATION
-    // initialize digital ledPin as an output.
+    /*prevent MCU specific code during simulation*/
+#if OFSM_MCU_BLOCK
+    /* initialize digital ledPin as an output.*/
     pinMode(ledPin, OUTPUT);
 #endif 
     OFSM_SETUP();
 }
 
 void loop() {
-    ofsm_queue_global_event(false, 0, 0); //queue timeout to wakeup FSM
+    ofsm_queue_global_event(false, 0, 0); /*queue timeout to wakeup FSM*/
     OFSM_LOOP();
 }
 
 
 /* Handler implementation */
 void OnHandler(OFSMState *fsms) {
+	ofsm_debug_printf(1, "Turning Led ON for %i ticks.\n", ticksOn);
+	fsm_set_transition_delay(fsms, ticksOn);
+#if OFSM_MCU_BLOCK
+	digitalWrite(led, HIGH);
+#endif
 }
 
 void OffHandler(OFSMState *fsms) {
+	ofsm_debug_printf(1, "Turning Led OFF for %i ticks.\n", ticksOff);
+	fsm_set_transition_delay(fsms, ticksOff);
+#if OFSM_MCU_BLOCK
+	digitalWrite(led, LOW);
+#endif
 }
 

@@ -282,7 +282,7 @@ LIMITATIONS
 #endif /*_MSC_VER*/
 
 
-
+#include <stdint.h> /*for uint8_t support*/
 #ifdef OFSM_CONFIG_SIMULATION
 #   include <iostream>
 #	include <fstream>
@@ -298,7 +298,6 @@ LIMITATIONS
 #	include <locale>
 #   include <string.h>
 #	include <stdio.h>
-#   include <stdint.h> /*for uint8_t support*/
 #   define _OFSM_TIME_DATA_TYPE uint32_t //make it the same size as AVR unsigned long
 #else
 #   define _OFSM_TIME_DATA_TYPE unsigned long
@@ -344,13 +343,23 @@ void _ofsm_start();
 
 
 /*---------------------
+Common defines
+-----------------------*/
+#ifndef OFSM_CONFIG_DEFAULT_STATE_TRANSITION_DELAY
+#	define OFSM_CONFIG_DEFAULT_STATE_TRANSITION_DELAY 0
+#endif
+
+/*---------------------
 Simulation defines
 -----------------------*/
 #ifdef OFSM_CONFIG_SIMULATION
 
 struct OFSMSimulationStatusReport;
-
 volatile char _ofsm_simulation_assert_compare_string[256];
+
+#undef OFSM_MCU_BLOCK
+
+
 
 #define ofsm_simulation_set_assert_compare_string(str) \
 OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { \
@@ -412,10 +421,6 @@ OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { \
 
 
 /*other overrides*/
-#ifndef OFSM_CONFIG_DEFAULT_STATE_TRANSITION_DELAY
-#	define OFSM_CONFIG_DEFAULT_STATE_TRANSITION_DELAY 0
-#endif
-
 #ifndef OFSM_CONFIG_SIMULATION_TICK_MS
 #	define OFSM_CONFIG_SIMULATION_TICK_MS 1000
 #endif
@@ -431,15 +436,15 @@ OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { \
 #endif
 
 #ifndef OFSM_CONFIG_CUSTOM_WAKEUP_FUNC
-#	define OFSM_CONFIG_CUSTOM_WAKEUP_FUNC _ofsm_simulation_wakeup
     void _ofsm_simulation_wakeup();
-#	define _OFSM_IMPL_WAKEUP
+#	define OFSM_CONFIG_CUSTOM_WAKEUP_FUNC _ofsm_simulation_wakeup
+#	define _OFSM_IMPL_SIMULATION_WAKEUP
 #endif
 
 #ifndef OFSM_CONFIG_CUSTOM_ENTER_SLEEP_FUNC
-#	define OFSM_CONFIG_CUSTOM_ENTER_SLEEP_FUNC _ofsm_simulation_enter_sleep
     void _ofsm_simulation_enter_sleep();
-#	define _OFSM_IMPL_ENTER_SLEEP
+#	define OFSM_CONFIG_CUSTOM_ENTER_SLEEP_FUNC _ofsm_simulation_enter_sleep
+#	define _OFSM_IMPL_SIMULATION_ENTER_SLEEP
 #endif
 
 #ifndef OFSM_CONFIG_ATOMIC_BLOCK
@@ -464,11 +469,26 @@ OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { \
 
 #else /*is NOT OFSM_CONFIG_SIMULATION*/
 
+#define OFSM_MCU_BLOCK
+
 #undef OFSM_CONFIG_SIMULATION_SCRIPT_MODE
 #undef OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE
 
 #define ofsm_debug_printf(level,  ...)
 #define _ofsm_debug_printf(level,  ...)
+
+
+#ifndef OFSM_CONFIG_CUSTOM_WAKEUP_FUNC
+void _ofsm_wakeup();
+#	define OFSM_CONFIG_CUSTOM_WAKEUP_FUNC _ofsm_wakeup
+#	define _OFSM_IMPL_WAKEUP
+#endif
+
+#ifndef OFSM_CONFIG_CUSTOM_ENTER_SLEEP_FUNC
+void _ofsm_enter_sleep();
+#	define OFSM_CONFIG_CUSTOM_ENTER_SLEEP_FUNC _ofsm_enter_sleep
+#	define _OFSM_IMPL_ENTER_SLEEP
+#endif
 
 
 #ifndef OFSM_CONFIG_CUSTOM_WAKEUP_FUNC
@@ -547,9 +567,10 @@ Flags
 #define _OFSM_FLAG_ALL (_OFSM_FLAG_INFINITE_SLEEP | _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW)
 
 //FSM Flags
-#define _OFSM_FLAG_FSM_PREVENT_TRANSITION	0x10
-#define _OFSM_FLAG_FSM_NEXT_STATE_OVERRIDE	0x20
-#define _OFSM_FLAG_FSM_FLAG_ALL (_OFSM_FLAG_ALL | _OFSM_FLAG_FSM_PREVENT_TRANSITION | _OFSM_FLAG_FSM_NEXT_STATE_OVERRIDE )
+#define _OFSM_FLAG_FSM_PREVENT_TRANSITION			0x10
+#define _OFSM_FLAG_FSM_NEXT_STATE_OVERRIDE			0x20
+#define _OFSM_FLAG_FSM_HANDLER_SET_TRANSITION_DELAY	0x40
+#define _OFSM_FLAG_FSM_FLAG_ALL (_OFSM_FLAG_ALL | _OFSM_FLAG_FSM_PREVENT_TRANSITION | _OFSM_FLAG_FSM_NEXT_STATE_OVERRIDE | _OFSM_FLAG_FSM_HANDLER_SET_TRANSITION_DELAY )
 
 //GROUP Flags
 #define _OFSM_FLAG_GROUP_BUFFER_OVERFLOW	0x10
@@ -565,7 +586,7 @@ Macros
 -------------------------------------------------*/
 #define fsm_prevent_transition(fsms)					((fsms->fsm)[0].flags |= _OFSM_FLAG_FSM_PREVENT_TRANSITION)
 
-#define fsm_set_transition_delay(fsms, delayTicks)		((fsms->fsm)[0].wakeupTime = delayTicks)
+#define fsm_set_transition_delay(fsms, delayTicks)		((fsms->fsm)[0].wakeupTime = delayTicks, (fsms->fsm)[0].flags |= _OFSM_FLAG_FSM_HANDLER_SET_TRANSITION_DELAY)
 #define fsm_set_inifinite_delay(fsms)					((fsms->fsm)[0].flags |= _OFSM_FLAG_INFINITE_SLEEP)
 #define fsm_set_next_state(fsms, nextStateId)			((fsms->fsm)[0].flags |= _OFSM_FLAG_FSM_NEXT_STATE_OVERRIDE, (fsms->fsm)[0].currentState = nextStateId)
 
@@ -578,6 +599,8 @@ Macros
 #define fsm_get_event_code(fsms)						((fsms->e)[0].eventCode)
 #ifdef OFSM_CONFIG_SUPPORT_EVENT_DATA
 #   define fsm_get_event_data(fsms)						((fsms->e)[0].eventData)
+#else 
+#	define fsm_get_event_data(fsms)						0
 #endif
 #define fsm_queue_group_event(fsms, forceNewEvent, eventCode, eventData) \
     ofsm_queue_group_event(fsm_get_group_index(fsms), bool forceNewEvent, uint8_t eventCode, OFSM_CONFIG_EVENT_DATA_TYPE eventData)
@@ -703,7 +726,7 @@ static inline void _ofsm_fsm_process_event(OFSM *fsm, uint8_t groupIndex, uint8_
         delay = -1;
 #endif
     }
-    else if (0 == fsm->wakeupTime) {
+    else if (!(fsm->flags & _OFSM_FLAG_FSM_HANDLER_SET_TRANSITION_DELAY)) {
         fsm->wakeupTime = currentTime + OFSM_CONFIG_DEFAULT_STATE_TRANSITION_DELAY;
 #ifdef OFSM_CONFIG_SIMULATION
         delay = OFSM_CONFIG_DEFAULT_STATE_TRANSITION_DELAY;
@@ -718,7 +741,7 @@ static inline void _ofsm_fsm_process_event(OFSM *fsm, uint8_t groupIndex, uint8_
             fsm->flags |= _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW;
         }
     }
-    _ofsm_debug_printf(2,  "F(%i)G(%i): Transitioning from state %i ==>%c%i. Transition delay: %ld\n", fsmIndex, groupIndex,  prevState, overridenState, fsm->currentState, delay);
+    _ofsm_debug_printf(2,  "F(%i)G(%i): Transitioning from state %i ==> %c%i. Transition delay: %ld\n", fsmIndex, groupIndex,  prevState, overridenState, fsm->currentState, delay);
 }/*_ofsm_fsm_process_event*/
 
 static inline void _ofsm_group_process_pending_event(OFSMGroup *group, uint8_t groupIndex, _OFSM_TIME_DATA_TYPE *groupEarliestWakeupTime, uint8_t *groupAndedFsmFlags)
@@ -781,14 +804,14 @@ static inline void _ofsm_group_process_pending_event(OFSMGroup *group, uint8_t g
 }/*_ofsm_group_process_pending_event*/
 
 static inline void _ofsm_setup_hardware() {
-#ifdef OFSM_CONFIG_SIMULATION
+#ifndef OFSM_CONFIG_SIMULATION
     //TBI:
-#endif /*OFSM_CONFIG_SIMULATION*/
+#endif /*not OFSM_CONFIG_SIMULATION*/
 }/*_ofsm_setup_hardware*/
 
 void _ofsm_setup() {
 
-    /*In simulation mode, we need to allow to reset OFSM. Reset internal states*/
+    /*In simulation mode, we need to allow to reset OFSM to initial state, so that intermediate test case can start clean.*/
 #ifdef OFSM_CONFIG_SIMULATION
     uint8_t i, k;
     OFSMGroup *group;
@@ -1209,7 +1232,7 @@ void _ofsm_simulation_create_status_report(OFSMSimulationStatusReport *r, uint8_
     }
 }
 
-#ifdef _OFSM_IMPL_ENTER_SLEEP
+#ifdef _OFSM_IMPL_SIMULATION_ENTER_SLEEP
 void _ofsm_simulation_enter_sleep() {
         std::unique_lock<std::mutex> lk(cvm);
 
@@ -1217,9 +1240,9 @@ void _ofsm_simulation_enter_sleep() {
         _ofsmFlags &= ~_OFSM_FLAG_OFSM_EVENT_QUEUED;
         lk.unlock();
 }
-#endif /* _OFSM_IMPL_ENTER_SLEEP */
+#endif /* _OFSM_IMPL_SIMULATION_ENTER_SLEEP */
 
-#ifdef _OFSM_IMPL_WAKEUP
+#ifdef _OFSM_IMPL_SIMULATION_WAKEUP
 void _ofsm_simulation_wakeup() {
 #   ifndef OFSM_CONFIG_SIMULATION_SCRIPT_MODE
     std::unique_lock<std::mutex> lk(cvm);
@@ -1230,7 +1253,7 @@ void _ofsm_simulation_wakeup() {
     _ofsm_start();
 #   endif
 }
-#endif /* _OFSM_IMPL_WAKEUP */
+#endif /* _OFSM_IMPL_SIMULATION_WAKEUP */
 
 int _ofsm_simulation_check_for_assert(std::string &assertCompareString, int lineNumber) {
     std::string lastOut = (char*)_ofsm_simulation_assert_compare_string;
@@ -1297,6 +1320,7 @@ std::ifstream fileStream;
 
 int _ofsm_simulation_event_generator(const char *fileName) {
     std::string line;
+    std::string token;
     int exitCode = 0;
     std::string assertCompareString;
 
@@ -1356,9 +1380,9 @@ int _ofsm_simulation_event_generator(const char *fileName) {
         std::stringstream strStream(line);
 
         //parse by tokens
-        while (std::getline(strStream, line, ',')) {
-            if (line.find_first_not_of(' ') >= 0) {
-                tokens.push_back(trim(line));
+        while (std::getline(strStream, token, ',')) {
+            if (token.find_first_not_of(' ') >= 0) {
+                tokens.push_back(trim(token));
             }
         }
 

@@ -42,3 +42,4 @@ ignore.cpp
 *.layout
 *.cbp
 Debug
+Release
