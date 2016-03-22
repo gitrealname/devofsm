@@ -1,4 +1,4 @@
-#ifdef TEST
+#ifdef UTEST
 /*configure script (unit test) mode simulation*/
 #   define OFSM_CONFIG_SIMULATION                            /* turn on simulation mode */
 #   define OFSM_CONFIG_SIMULATION_SCRIPT_MODE                /* run main loop synchronously */

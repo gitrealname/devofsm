@@ -1,6 +1,4 @@
-#define TEST
-
-#ifdef TEST
+#ifdef UTEST
 /*configure script (unit test) mode simulation*/
 #   define OFSM_CONFIG_SIMULATION                            /* turn on simulation mode */
 #   define OFSM_CONFIG_SIMULATION_SCRIPT_MODE                /* run main loop synchronously */
@@ -23,7 +21,7 @@
 
 #define EVENT_QUEUE_SIZE 3 /*event queue size*/
 
-#include "../ofsm.h"
+#include <ofsm.h>
 
 /*define events*/
 enum Events {Timeout = 0, NormalTransition, PreventTransition, InfiniteDelay};
