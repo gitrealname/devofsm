@@ -51,7 +51,7 @@ static inline void _ofsm_fsm_process_event(OFSM *fsm, uint8_t groupIndex, uint8_
             _ofsm_debug_printf(4,  "F(%i)G(%i): State Machine is in infinite sleep.\n", fsmIndex, groupIndex);
         }
         else if (wakeupTimeGTcurrentTime) {
-            _ofsm_debug_printf(4,  "F(%i)G(%i): State Machine is asleep. Wakeup is scheduled in %lu ticks.\n", fsmIndex, groupIndex, fsm->wakeupTime - currentTime);
+            _ofsm_debug_printf(4,  "F(%i)G(%i): State Machine is asleep. Wakeup is scheduled in %lu ticks.\n", fsmIndex, groupIndex, (long unsigned int)(fsm->wakeupTime - currentTime));
 #endif
         }
         return;
@@ -162,9 +162,9 @@ static inline void _ofsm_group_process_pending_event(OFSMGroup *group, uint8_t g
             }
         }
     }
-    
+
     _ofsm_debug_printf(4,  "G(%i): currentEventIndex %i, nextEventIndex %i.\n", groupIndex, group->currentEventIndex, group->nextEventIndex);
-    
+
     //Queue considered empty when (nextEventIndex == currentEventIndex) and buffer overflow flag is NOT set
     if (!eventPending) {
         _ofsm_debug_printf(4,  "G(%i): Event queue is empty.\n", groupIndex);
@@ -200,7 +200,7 @@ void _ofsm_setup() {
     OFSM *fsm;
     /*reset GLOBALS*/
     _ofsmFlags = (_OFSM_FLAG_INFINITE_SLEEP |_OFSM_FLAG_OFSM_INTERRUPT_INFINITE_SLEEP_ON_TIMEOUT);
-    _ofsmTime = 0; 
+    _ofsmTime = 0;
     /*reset groups and FSMs*/
     for (i = 0; i < _ofsmGroupCount; i++) {
         group = (_ofsmGroups)[i];
@@ -254,7 +254,7 @@ void _ofsm_start() {
     uint8_t timeFlags;
 #ifdef OFSM_CONFIG_SIMULATION
     bool doReturn = false;
-#endif 
+#endif
 
     //start main loop
     do
@@ -319,7 +319,7 @@ void _ofsm_start() {
             _ofsmFlags &= ~_OFSM_FLAG_OFSM_INTERRUPT_INFINITE_SLEEP_ON_TIMEOUT;
         }
 #ifndef OFSM_CONFIG_SIMULATION_SCRIPT_MODE
-        _ofsm_debug_printf(4,  "O: Entering sleep... Wakeup Time %ld.\n", _ofsmFlags & _OFSM_FLAG_INFINITE_SLEEP ? -1 : _ofsmWakeupTime);
+        _ofsm_debug_printf(4,  "O: Entering sleep... Wakeup Time %ld.\n", _ofsmFlags & _OFSM_FLAG_INFINITE_SLEEP ? -1 : (long int)_ofsmWakeupTime);
         OFSM_CONFIG_CUSTOM_ENTER_SLEEP_FUNC();
 
         _ofsm_debug_printf(4,  "O: Waked up.\n");
@@ -555,11 +555,11 @@ void _ofsm_simulation_status_report_printer(OFSMSimulationStatusReport *r) {
         //Current State (-S)
         , r->fsmCurrentState
         //CurrentTime, Wakeup time (-TW)
-        , r->ofsmTime
+        , (long unsigned int)r->ofsmTime
         , (r->ofsmTimerOverflow ? '!' : '.')
-        , r->ofsmScheduledWakeupTime
+        , (long unsigned int)r->ofsmScheduledWakeupTime
         , (r->ofsmScheduledTimeOverflow ? '!' : '.')
-        , r->fsmScheduledWakeupTime
+        , (long unsigned int)r->fsmScheduledWakeupTime
         , (r->fsmScheduledTimeOverflow ? '!' : '.')
         );
     ofsm_simulation_set_assert_compare_string(buf);
@@ -658,7 +658,7 @@ void _ofsm_simulation_fsm_thread(int ignore) {
     loop();
 #ifndef OFSM_CONFIG_SIMULATION_SCRIPT
     _ofsm_debug_printf(1, "Exiting Loop thread...\n");
-#endif 
+#endif
 }/*_ofsm_simulation_fsm_thread*/
 
 void _ofsm_simulation_heartbeat_provider_thread(int tickSize) {
@@ -680,7 +680,7 @@ void _ofsm_simulation_heartbeat_provider_thread(int tickSize) {
         if (doReturn) {
 #ifndef OFSM_CONFIG_SIMULATION_SCRIPT
             _ofsm_debug_printf(1, "Exiting Heartbeat provider thread...\n");
-#endif 
+#endif
             return;
         }
         currentTime++;
@@ -734,7 +734,7 @@ int _ofsm_simulation_event_generator(const char *fileName) {
         if (!line.length()) {
             continue;
         }
-        
+
         //get assert string or print string (preserving case)
         t = line;
         toLower(t);
@@ -815,7 +815,7 @@ int _ofsm_simulation_event_generator(const char *fileName) {
             if (0 == sleepPeriod) {
                 sleepPeriod = 1000;
             }
-            _ofsm_debug_printf(4,  "G: Entering sleep for %lu milliseconds...\n", sleepPeriod);
+            _ofsm_debug_printf(4,  "G: Entering sleep for %lu milliseconds...\n", (long unsigned int)sleepPeriod);
             _ofsm_simulation_sleep(sleepPeriod);
             continue;
         }
@@ -869,7 +869,7 @@ int _ofsm_simulation_event_generator(const char *fileName) {
             }
         }
         break;
-        case 'h':			// h[eartbeat][,currentTime] 
+        case 'h':			// h[eartbeat][,currentTime]
         {
             _OFSM_TIME_DATA_TYPE currentTime;
             if (tCount > 1) {
@@ -973,7 +973,7 @@ int main(int argc, char* argv[])
             OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
 #endif
         }
-        
+
 #ifndef OFSM_CONFIG_SIMULATION_SCRIPT_MODE
         _ofsm_debug_printf(3, "Waiting for %i milliseconds for all threads to exit...\n", OFSM_CONFIG_SIMULATION_TICK_MS);
         _ofsm_simulation_sleep(OFSM_CONFIG_SIMULATION_TICK_MS + 10); /*let heartbeat provider thread to exit before exiting*/

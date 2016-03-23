@@ -1,12 +1,12 @@
-//GCC build cmd: g++ -Wall -std=c++11 -fexceptions -std=c++11 -g  -c D:\Work\devofsm\sketch.cpp -o obj\Debug\sketch.o
+//GCC build cmd: g++ -Wall -std=c++11 -fexceptions -std=c++11 -g  -o sketch sketch.cpp
 
 #define OFSM_CONFIG_DEFAULT_STATE_TRANSITION_DELAY 5
 
 #define OFSM_CONFIG_SIMULATION
 
-#define OFSM_CONFIG_SIMULATION_SCRIPT_MODE
-#define OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE 2
-#define OFSM_CONFIG_SIMULATION_SCRIPT_MODE_SLEEP_BETWEEN_EVENTS_MS 500
+//#define OFSM_CONFIG_SIMULATION_SCRIPT_MODE
+//#define OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE 2
+//#define OFSM_CONFIG_SIMULATION_SCRIPT_MODE_SLEEP_BETWEEN_EVENTS_MS 500
 
 #define OFSM_CONFIG_SIMULATION_DEBUG_LEVEL 4
 #define OFSM_CONFIG_SIMULATION_DEBUG_LEVEL_OFSM 4
@@ -72,11 +72,11 @@ enum State { S0, S1 };
 
 //_OFSM_DECLARE_FSM(0, 2, 4, NULL, NULL);
 
-//OFSMTransition *a[2 * 4]; 
-//uint8_t b = 4; 
+//OFSMTransition *a[2 * 4];
+//uint8_t b = 4;
 //OFSM _ofsm_declare_fsm_0 = { (OFSMTransition**)a, 4, 0, 0x1 };;
 ////	OFSM_DECLARE_FSM_TRANSITION(0, S0, Timeout, handlerTimeout, S0);
-//OFSMTransition _ofsm_t_fsmId_stateId_Timeout = { handlerTimeout, S0 }; 
+//OFSMTransition _ofsm_t_fsmId_stateId_Timeout = { handlerTimeout, S0 };
 //{
 //	a[b * S0 + Timeout] = &_ofsm_t_fsmId_stateId_Timeout;;
 //}

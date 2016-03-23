@@ -64,7 +64,6 @@ static inline void _ofsm_group_process_pending_event(OFSMGroup *group, uint8_t g
 static inline void _ofsm_fsm_process_event(OFSM *fsm, uint8_t groupIndex, uint8_t fsmIndex, OFSMEventData *e) __attribute__((__always_inline__));
 static inline void _ofsm_check_timeout() __attribute__((__always_inline__));
 void _ofsm_setup();
-static inline void _ofsm_setup_hardware()  __attribute__((__always_inline__));
 void _ofsm_start();
 
 /*see declaration of fsm_... macros below*/
@@ -106,7 +105,7 @@ OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { \
 #	define _ofsm_strncpy(dest, src, size) strcpy_s(dest, size, src)
 #   define _ofsm_snprintf(dest, size, format, ...) sprintf_s(dest, size, format, __VA_ARGS__)
 #else
-#   define _ofsm_snprintf(dest, size, format, ...) snprintf_s(dest, size, format, __VA_ARGS__)
+#   define _ofsm_snprintf(dest, size, format, ...) snprintf(dest, size, format, __VA_ARGS__)
 #	define _ofsm_strncpy(dest, src, size) strncpy(dest, src, size)
 #endif /*_MSC_VER*/
 
@@ -116,7 +115,7 @@ OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { \
             OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { \
                 _OFSM_TIME_DATA_TYPE __time; \
                 ofsm_get_time(__time, __time); \
-                printf("[%lu] ", __time); \
+                printf("[%lu] ", (long unsigned int)__time); \
                 printf(__VA_ARGS__); \
             } \
         }
@@ -125,7 +124,7 @@ OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { \
             OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { \
                 _OFSM_TIME_DATA_TYPE __time; \
                 ofsm_get_time(__time, __time); \
-                printf("[%lu] ", __time); \
+                printf("[%lu] ", (long unsigned int)__time); \
                 printf(__VA_ARGS__); \
             } \
         }
@@ -194,6 +193,8 @@ OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { \
 #endif
 
 #else /*is NOT OFSM_CONFIG_SIMULATION*/
+
+static inline void _ofsm_setup_hardware()  __attribute__((__always_inline__));
 
 #define OFSM_MCU_BLOCK
 
@@ -325,7 +326,7 @@ Macros
 #define fsm_get_event_code(fsms)						((fsms->e)[0].eventCode)
 #ifdef OFSM_CONFIG_SUPPORT_EVENT_DATA
 #   define fsm_get_event_data(fsms)						((fsms->e)[0].eventData)
-#else 
+#else
 #	define fsm_get_event_data(fsms)						0
 #endif
 #define fsm_queue_group_event(fsms, forceNewEvent, eventCode, eventData) \
@@ -399,7 +400,7 @@ Setup helper macros
                 fsmPrivateDataPtr,					/*fsmPrivateInfo*/ \
                 _OFSM_FLAG_INFINITE_SLEEP           /*flags*/ \
         };
-#else 
+#else
 #   define OFSM_DECLARE_FSM(fsmId, transitionTable, transitionTableEventCount, initializationHandler, fsmPrivateDataPtr) \
         OFSM _ofsm_decl_fsm_##fsmId = {\
                 (OFSMTransition**)transitionTable, 	/*transitionTable*/ \
