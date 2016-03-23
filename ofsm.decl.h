@@ -76,6 +76,10 @@ Common defines
 #	define OFSM_CONFIG_DEFAULT_STATE_TRANSITION_DELAY 0
 #endif
 
+#ifndef OFSM_CONFIG_TICK_US
+#   define OFSM_CONFIG_TICK_US 1000 /* 1 millisecond */
+#endif
+
 /*---------------------
 Simulation defines
 -----------------------*/
@@ -195,35 +199,39 @@ OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { \
 #else /*is NOT OFSM_CONFIG_SIMULATION*/
 
 static inline void _ofsm_setup_hardware()  __attribute__((__always_inline__));
+static inline void _ofsm_enter_idle_sleep() __attribute__((__always_inline__));
+static inline void _ofsm_enter_deep_sleep(unsigned long sleepPeriodMs) __attribute__((__always_inline__));
+static inline void _ofsm_wdt_vector() __attribute__((__always_inline__));
+
+#include <avr/sleep.h>
+#include <avr/wdt.h>
 
 #define OFSM_MCU_BLOCK
 
 #undef OFSM_CONFIG_SIMULATION_SCRIPT_MODE
 #undef OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE
 
+
+#ifndef sbi 
+# define sbi(reg, bitToSet) (reg |= (1 << bitToSet))
+#endif
+#ifndef cbi
+# define cbi(reg, bitToClear) (reg &= ~(1 << bitToClear))
+#endif
+
 #define ofsm_debug_printf(level,  ...)
 #define _ofsm_debug_printf(level,  ...)
 
-
 #ifndef OFSM_CONFIG_CUSTOM_WAKEUP_FUNC
-void _ofsm_wakeup();
+static inline void _ofsm_wakeup() __attribute__((__always_inline__))
 #	define OFSM_CONFIG_CUSTOM_WAKEUP_FUNC _ofsm_wakeup
 #	define _OFSM_IMPL_WAKEUP
 #endif
 
 #ifndef OFSM_CONFIG_CUSTOM_ENTER_SLEEP_FUNC
-void _ofsm_enter_sleep();
+static inline void _ofsm_enter_sleep() __attribute__((__always_inline__));
 #	define OFSM_CONFIG_CUSTOM_ENTER_SLEEP_FUNC _ofsm_enter_sleep
 #	define _OFSM_IMPL_ENTER_SLEEP
-#endif
-
-
-#ifndef OFSM_CONFIG_CUSTOM_WAKEUP_FUNC
-#	define OFSM_CONFIG_CUSTOM_WAKEUP_FUNC _ofsm_wakeup
-#endif
-
-#ifndef OFSM_CONFIG_CUSTOM_ENTER_SLEEP_FUNC
-#	define OFSM_CONFIG_CUSTOM_ENTER_SLEEP_FUNC _ofsm_enter_sleep
 #endif
 
 #ifndef OFSM_CONFIG_ATOMIC_BLOCK
@@ -291,7 +299,8 @@ Flags
 //Common flags
 #define _OFSM_FLAG_INFINITE_SLEEP			0x1
 #define _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW	0x2 /*indicate if wakeup time is scheduled after post overflow of time register*/
-#define _OFSM_FLAG_ALL (_OFSM_FLAG_INFINITE_SLEEP | _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW)
+#define _OFSM_FLAG_ALLOW_DEEP_SLEEP         0x4 
+#define _OFSM_FLAG_ALL (_OFSM_FLAG_INFINITE_SLEEP | _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW | _OFSM_FLAG_ALLOW_DEEP_SLEEP)
 
 //FSM Flags
 #define _OFSM_FLAG_FSM_PREVENT_TRANSITION			0x10
@@ -303,6 +312,7 @@ Flags
 #define _OFSM_FLAG_GROUP_BUFFER_OVERFLOW	0x10
 
 //Orchestra Flags
+#define _OFSM_FLAG_OFSM_IN_DEEP_SLEEP   0x8   /*watch dog timer is running*/
 #define _OFSM_FLAG_OFSM_EVENT_QUEUED	0x10
 #define _OFSM_FLAG_OFSM_TIMER_OVERFLOW	0x20
 #define _OFSM_FLAG_OFSM_INTERRUPT_INFINITE_SLEEP_ON_TIMEOUT	0x40 /*used at startup to allow queued timeout event to wakeup FSM*/
@@ -314,7 +324,9 @@ Macros
 #define fsm_prevent_transition(fsms)					((fsms->fsm)[0].flags |= _OFSM_FLAG_FSM_PREVENT_TRANSITION)
 
 #define fsm_set_transition_delay(fsms, delayTicks)		((fsms->fsm)[0].wakeupTime = delayTicks, (fsms->fsm)[0].flags |= _OFSM_FLAG_FSM_HANDLER_SET_TRANSITION_DELAY)
-#define fsm_set_inifinite_delay(fsms)					((fsms->fsm)[0].flags |= _OFSM_FLAG_INFINITE_SLEEP)
+#define fsm_set_transition_delay_power_down(fsms, delayTicks) (fsm_set_transition_delay(fsms, delayTicks), (fsms->fsm)[0].flags |= _OFSM_FLAG_ALLOW_DEEP_SLEEP)
+#define fsm_set_infinite_delay(fsms)					((fsms->fsm)[0].flags |= _OFSM_FLAG_INFINITE_SLEEP)
+#define fsm_set_infinite_delay_power_down(fsms)         (fsm_set_infinite_delay(fsms), (fsms->fsm)[0].flags |= _OFSM_FLAG_ALLOW_DEEP_SLEEP)
 #define fsm_set_next_state(fsms, nextStateId)			((fsms->fsm)[0].flags |= _OFSM_FLAG_FSM_NEXT_STATE_OVERRIDE, (fsms->fsm)[0].currentState = nextStateId)
 
 #define fsm_get_private_data(fsms)						((fsms->fsm)[0].fsmPrivateInfo)

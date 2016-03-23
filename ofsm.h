@@ -150,6 +150,7 @@ OFSM can be "shaped" in many different ways using configuration switches. NOTE: 
 #define OFSM_CONFIG_ATOMIC_RESTORESTATE ATOMIC_RESTORESTATE     //Default: ATOMIC_RESTORESTATE see <util/atomic.h>
 #define OFSM_CONFIG_SUPPORT_INITIALIZATION_HANDLER              //Default: undefined. When defined OFMS implements supports for initialization handlers. This will consume a little bit of memory, as handler place holder and initialization logic will be implemented.
 #define OFSM_CONFIG_SUPPORT_EVENT_DATA                          //Default: undefined. When defined OFMS will support event data. 
+#define OFSM_CONFIG_TICK_US                                     //Default: 1000 (1 millisecond). OFSM tick size in microseconds
 
 //By default OFSM uses timer0 to implement heartbeat provider,
 //If this macro is defined, standard heartbeat provided will not be implemented 

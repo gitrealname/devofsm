@@ -999,7 +999,109 @@ static inline void _ofsm_setup_hardware() {
     //TBI:
 }/*_ofsm_setup_hardware*/
 
+static inline void _ofsm_wakeup() {
+}
 
+static inline void _ofsm_enter_sleep() {
+    
+    cli(); /*disable interrupts*/
+    while(!_ofsmFlags & _OFSM_FLAG_OFSM_EVENT_QUEUED) {
+        /* determine if we need to use watch dog timer */
+        unsigned long sleepPeriodTick = _ofsmWakeupTime - _ofsmTime;
+    #if OFSM_CONFIG_TICK_US > 1000
+        unsigned long sleepPeriodMs = sleepPeriodTick * ((unsigned long)(OFSM_CONFIG_TICK_US/1000));
+    #else
+        unsigned long sleepPeriodMs = (unsigned long)(sleepPeriodTick * OFSM_CONFIG_TICK_US)/1000;
+    #endif
+        if(_ofsmFlags & _OFSM_FLAG_ALLOW_DEEP_SLEEP && sleepPeriodMs >= 16) {
+            _ofsm_enter_deep_sleep(sleepPeriodMs);
+        } else {
+            _ofsm_enter_idle_sleep();
+        }
+        //waked up continues here
+
+    }
+    //disable sleep
+    sti();
+}
+
+static inline void _ofsm_enter_idle_sleep() {
+
+}
+
+extern volatile unsigned long timer0_millis; /*Arduino timer0 variable*/
+volatile uint16_t watchDogDelayMs;
+
+static inline void _ofsm_wdt_vector() {
+    /*try to update Arduino timer variables, to keep time relatively correct.
+    if deep sleep was interrupted by external source, 
+    then time will not be updated as we don't know how big of a delay was between getting to sleep and external interrupt
+    */
+    if(_ofsm_flags &= ~_OFSM_FLAG_OFSM_IN_DEEP_SLEEP) {
+        timer0_millis += watchDogDelayMs;
+    }
+}
+
+ISR(WDT_vect) {
+    _ofsm_wdt_vector();
+}
+
+static inline void _ofsm_enter_deep_sleep(unsigned long sleepPeriodMs) {
+    uint8_t wdtMask = 0;
+
+    if(sleepPeriodMs > 8000) {
+		wdtMask = B1001 /*8 sec*/
+	} else {
+		uint16_t probe = 16;
+		for(wdtMask = 1; wdtMask < B1001 && probe < sleepPeriodMs; wdtMask++) {
+			probe  = probe << wdtMask;
+		}
+		wdtMask--;
+        watchDogDelayMs = prob >> 1;
+	}
+    
+    power_adc_disable();
+    power_spi_disable();
+    power_timer0_disable();
+    power_timer1_disable();
+    power_timer2_disable();
+    power_twi_disable();
+    
+    MCUSR = 0;     /*clear various "reset" flags*/
+    sbi(WDTCSR, WDCE); /* allow changes */
+    sbi(WDTCSR, WDE); /* disable reset */
+    WDTCSR &= (B11111000 | wdtMask); /* set interval */
+    wdt_reset();  /* prepare */
+
+    _ofsm_flags |= _OFSM_FLAG_OFSM_IN_DEEP_SLEEP; /*set flag indicating deep sleep. It must be removed on wakeup. Event wakeup happened due to external interrupt! */
+    set_sleep_mode (SLEEP_MODE_PWR_DOWN);  
+
+    sleep_enable();
+
+    /* turn off brown-out */
+    MCUCR = (1 << BODS) | (1 << BODSE);
+    MCUCR = (1 << BODS);
+
+    sti();
+    sleep_cpu();
+    /*------------------------------------------*/
+    /*waked up here*/
+    cli();
+    cbi(WDTCSR, WDIE); /*disable watch dog interrupt*/
+    wdt_disable();
+    _ofsm_flags &= ~_OFSM_FLAG_OFSM_IN_DEEP_SLEEP;
+    sti();
+
+    /*restore hardware*/
+    sleep_disable();
+
+    power_twi_enable();
+    power_timer2_enable();
+    power_timer1_enable();
+    power_timer0_enable();
+    power_spi_enable();
+    power_adc_enable();
+}
 
 #endif /* not OFSM_CONFIG_SIMULATION */
 
