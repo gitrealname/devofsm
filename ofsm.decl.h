@@ -203,6 +203,11 @@ static inline void _ofsm_enter_idle_sleep() __attribute__((__always_inline__));
 static inline void _ofsm_enter_deep_sleep(unsigned long sleepPeriodMs) __attribute__((__always_inline__));
 static inline void _ofsm_wdt_vector() __attribute__((__always_inline__));
 
+static inline void  _ofsm_idle_sleep_disable_peripheral() __attribute__((__always_inline__));
+static inline void  _ofsm_idle_sleep_enable_peripheral() __attribute__((__always_inline__));
+static inline void  _ofsm_deep_sleep_disable_peripheral() __attribute__((__always_inline__));
+static inline void  _ofsm_deep_sleep_enable_peripheral() __attribute__((__always_inline__));
+
 #include <avr/sleep.h>
 #include <avr/wdt.h>
 

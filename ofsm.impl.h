@@ -1002,8 +1002,33 @@ static inline void _ofsm_setup_hardware() {
 static inline void _ofsm_wakeup() {
 }
 
+static inline void  _ofsm_idle_sleep_disable_peripheral() {
+    power_adc_disable();
+    power_spi_disable();
+    power_twi_disable();
+}
+
+static inline void _ofsm_idle_sleep_enable_peripheral() {
+    power_twi_enable();
+    power_spi_enable();
+    power_adc_enable();
+}
+
+static inline void  _ofsm_deep_sleep_disable_peripheral() {
+    power_adc_disable();
+    power_spi_disable();
+    power_twi_disable();
+}
+
+static inline void _ofsm_deep_sleep_enable_peripheral() {
+    power_twi_enable();
+    power_spi_enable();
+    power_adc_enable();
+}
+
 static inline void _ofsm_enter_sleep() {
-    
+unit8_t idleSleepFlag = 0;
+
     cli(); /*disable interrupts*/
     while(!_ofsmFlags & _OFSM_FLAG_OFSM_EVENT_QUEUED) {
         /* determine if we need to use watch dog timer */
@@ -1014,20 +1039,39 @@ static inline void _ofsm_enter_sleep() {
         unsigned long sleepPeriodMs = (unsigned long)(sleepPeriodTick * OFSM_CONFIG_TICK_US)/1000;
     #endif
         if(_ofsmFlags & _OFSM_FLAG_ALLOW_DEEP_SLEEP && sleepPeriodMs >= 16) {
+            _ofsm_deep_sleep_disable_peripheral();
             _ofsm_enter_deep_sleep(sleepPeriodMs);
+            /*when coming out of deep sleep we always re-enable peripherals right away, as we cannot guarantee if continues sleep will be deep sleep again*/
+            _ofsm_deep_sleep_enable_peripheral();
         } else {
+            if(!idleSleepFlag) {
+                _ofsm_deep_sleep_disable_peripheral();
+            }
+            idleSleepFlag |= 1;
             _ofsm_enter_idle_sleep();
+            /*after idle sleep we still don't know if we are going to continue sleep or not, postpone enable peripherals until after the sleep*/
         }
-        //waked up continues here
+        /*waked up continues here*/
 
+        /*call heartbeat via milliseconds/microseconds proxy
+        unless custom heartbeat provider is implemented*/
+        //....
     }
-    //disable sleep
+    
+    /* enable interrupts; disable sleep */
     sti();
+    sleep_disable();
+    if(idleSleepFlag) {
+        _ofsm_idle_sleep_enable_peripheral();
+    }
 }
 
 static inline void _ofsm_enter_idle_sleep() {
 
+    /*wakeup here*/
+    cli();
 }
+
 
 extern volatile unsigned long timer0_millis; /*Arduino timer0 variable*/
 volatile uint16_t watchDogDelayMs;
@@ -1060,13 +1104,6 @@ static inline void _ofsm_enter_deep_sleep(unsigned long sleepPeriodMs) {
         watchDogDelayMs = prob >> 1;
 	}
     
-    power_adc_disable();
-    power_spi_disable();
-    power_timer0_disable();
-    power_timer1_disable();
-    power_timer2_disable();
-    power_twi_disable();
-    
     MCUSR = 0;     /*clear various "reset" flags*/
     sbi(WDTCSR, WDCE); /* allow changes */
     sbi(WDTCSR, WDE); /* disable reset */
@@ -1078,7 +1115,7 @@ static inline void _ofsm_enter_deep_sleep(unsigned long sleepPeriodMs) {
 
     sleep_enable();
 
-    /* turn off brown-out */
+    /* turn off brown-out detector*/
     MCUCR = (1 << BODS) | (1 << BODSE);
     MCUCR = (1 << BODS);
 
@@ -1087,20 +1124,10 @@ static inline void _ofsm_enter_deep_sleep(unsigned long sleepPeriodMs) {
     /*------------------------------------------*/
     /*waked up here*/
     cli();
+
     cbi(WDTCSR, WDIE); /*disable watch dog interrupt*/
     wdt_disable();
     _ofsm_flags &= ~_OFSM_FLAG_OFSM_IN_DEEP_SLEEP;
-    sti();
-
-    /*restore hardware*/
-    sleep_disable();
-
-    power_twi_enable();
-    power_timer2_enable();
-    power_timer1_enable();
-    power_timer0_enable();
-    power_spi_enable();
-    power_adc_enable();
 }
 
 #endif /* not OFSM_CONFIG_SIMULATION */
