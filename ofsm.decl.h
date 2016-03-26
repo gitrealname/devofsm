@@ -329,9 +329,9 @@ Macros
 #define fsm_prevent_transition(fsms)					((fsms->fsm)[0].flags |= _OFSM_FLAG_FSM_PREVENT_TRANSITION)
 
 #define fsm_set_transition_delay(fsms, delayTicks)		((fsms->fsm)[0].wakeupTime = delayTicks, (fsms->fsm)[0].flags |= _OFSM_FLAG_FSM_HANDLER_SET_TRANSITION_DELAY)
-#define fsm_set_transition_delay_power_down(fsms, delayTicks) (fsm_set_transition_delay(fsms, delayTicks), (fsms->fsm)[0].flags |= _OFSM_FLAG_ALLOW_DEEP_SLEEP)
+#define fsm_set_transition_delay_deep_sleep(fsms, delayTicks) (fsm_set_transition_delay(fsms, delayTicks), (fsms->fsm)[0].flags |= _OFSM_FLAG_ALLOW_DEEP_SLEEP)
 #define fsm_set_infinite_delay(fsms)					((fsms->fsm)[0].flags |= _OFSM_FLAG_INFINITE_SLEEP)
-#define fsm_set_infinite_delay_power_down(fsms)         (fsm_set_infinite_delay(fsms), (fsms->fsm)[0].flags |= _OFSM_FLAG_ALLOW_DEEP_SLEEP)
+#define fsm_set_infinite_delay_deep_sleep(fsms)         (fsm_set_infinite_delay(fsms), (fsms->fsm)[0].flags |= _OFSM_FLAG_ALLOW_DEEP_SLEEP)
 #define fsm_set_next_state(fsms, nextStateId)			((fsms->fsm)[0].flags |= _OFSM_FLAG_FSM_NEXT_STATE_OVERRIDE, (fsms->fsm)[0].currentState = nextStateId)
 
 #define fsm_get_private_data(fsms)						((fsms->fsm)[0].fsmPrivateInfo)

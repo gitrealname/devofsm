@@ -338,24 +338,27 @@ void _ofsm_queue_group_event(uint8_t groupIndex, OFSMGroup *group, bool forceNew
     uint8_t copyNextEventIndex;
     OFSMEventData *event;
 #ifdef OFSM_CONFIG_SIMULATION
-    uint8_t debugFlags = 0x1; //set buffer overflow
+    uint8_t debugFlags = 0x1; /*set buffer overflow*/
 #endif
     OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
         copyNextEventIndex = group->nextEventIndex;
 
+		/*once even is queued we must erase deep sleep flag to indicate that deep sleep was interrupted */
+		_ofsmFlags &= ~(_OFSM_FLAG_OFSM_IN_DEEP_SLEEP);
+
         if (!(group->flags & _OFSM_FLAG_GROUP_BUFFER_OVERFLOW)) {
 #ifdef OFSM_CONFIG_SIMULATION
-            debugFlags = 0; //remove buffer overflow
+            debugFlags = 0; /*remove buffer overflow*/
 #endif
             if (group->nextEventIndex == group->currentEventIndex) {
-                forceNewEvent = true; //all event are processed by FSM and event should never reuse previous event slot.
+                forceNewEvent = true; /*all event are processed by FSM and event should never reuse previous event slot.*/
             }
             else if (0 == eventCode) {
-                forceNewEvent = false; //always replace timeout event
+                forceNewEvent = false; /*always replace timeout event*/
             }
         }
 
-        //update previous event if previous event codes matches
+        /*update previous event if previous event codes matches*/
         if (!forceNewEvent) {
             if (copyNextEventIndex == 0) {
                 copyNextEventIndex = group->eventQueueSize;
@@ -369,7 +372,7 @@ void _ofsm_queue_group_event(uint8_t groupIndex, OFSMGroup *group, bool forceNew
                 event->eventData = eventData;
 #endif
 #ifdef OFSM_CONFIG_SIMULATION
-                debugFlags |= 0x2; //set event replaced flag
+                debugFlags |= 0x2; /*set event replaced flag*/
 #endif
             }
         }
@@ -381,19 +384,19 @@ void _ofsm_queue_group_event(uint8_t groupIndex, OFSMGroup *group, bool forceNew
                     group->nextEventIndex = 0;
                 }
 
-                //queue event
+                /*queue event*/
                 event = &(group->eventQueue[copyNextEventIndex]);
                 event->eventCode = eventCode;
 #ifdef OFSM_CONFIG_SUPPORT_EVENT_DATA
                 event->eventData = eventData;
 #endif
 
-                //set event queued flag, so that _ofsm_start() knows if it need to continue processing
+                /*set event queued flag, so that _ofsm_start() knows if it need to continue processing*/
                 _ofsmFlags |= (_OFSM_FLAG_OFSM_EVENT_QUEUED);
 
-                //event buffer overflow disable further events
+                /*event buffer overflow disable further events*/
                 if (group->nextEventIndex == group->currentEventIndex) {
-                    group->flags |= _OFSM_FLAG_GROUP_BUFFER_OVERFLOW; //set buffer overflow flag, so that no new events get queued
+                    group->flags |= _OFSM_FLAG_GROUP_BUFFER_OVERFLOW; /*set buffer overflow flag, so that no new events get queued*/
                 }
             }
         }
@@ -455,31 +458,27 @@ void ofsm_queue_global_event(bool forceNewEvent, uint8_t eventCode, OFSM_CONFIG_
 static inline void _ofsm_check_timeout()
 {
     /*not need as it is called from within atomic block	OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { */
-    //do nothing if infinite sleep
+    /*do nothing if infinite sleep*/
     if (_ofsmFlags & _OFSM_FLAG_INFINITE_SLEEP) {
-        //catch situation when new event was queued just before main loop went to sleep. Probably can be removed, need some analysis TBI:
-        if (_ofsmFlags & _OFSM_FLAG_OFSM_EVENT_QUEUED) {
-            _ofsmFlags &= ~_OFSM_FLAG_OFSM_EVENT_QUEUED;
-            OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
-        }
         return;
     }
 
     if (_OFSM_TIME_A_GTE_B(_ofsmTime, (_ofsmFlags & _OFSM_FLAG_OFSM_TIMER_OVERFLOW), _ofsmWakeupTime, (_ofsmFlags & _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW))) {
-        ofsm_queue_global_event(false, 0, 0); //this call will wakeup main loop
+        ofsm_queue_global_event(false, 0, 0); /*this call will wakeup main loop*/
 
 #if OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE == 1 /*in this mode ofsm_queue_... will not wakeup*/
         OFSM_CONFIG_CUSTOM_WAKEUP_FUNC();
 #endif
     }
-    /*	}*/
 }/*_ofsm_check_timeout*/
 
 static inline void ofsm_heartbeat(_OFSM_TIME_DATA_TYPE currentTime)
 {
     _OFSM_TIME_DATA_TYPE prevTime;
     OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
-        prevTime = _ofsmTime;
+		/*once even is queued we must erase deep sleep flag to indicate that deep sleep was interrupted */
+		_ofsmFlags &= ~(_OFSM_FLAG_OFSM_IN_DEEP_SLEEP);
+		prevTime = _ofsmTime;
         _ofsmTime = currentTime;
         if (_ofsmTime < prevTime) {
             _ofsmFlags |= _OFSM_FLAG_OFSM_TIMER_OVERFLOW;
@@ -1033,15 +1032,15 @@ unit8_t idleSleepFlag = 0;
     while(!_ofsmFlags & _OFSM_FLAG_OFSM_EVENT_QUEUED) {
         /* determine if we need to use watch dog timer */
         unsigned long sleepPeriodTick = _ofsmWakeupTime - _ofsmTime;
-    #if OFSM_CONFIG_TICK_US > 1000
+#if OFSM_CONFIG_TICK_US > 1000
         unsigned long sleepPeriodMs = sleepPeriodTick * ((unsigned long)(OFSM_CONFIG_TICK_US/1000));
-    #else
+#else
         unsigned long sleepPeriodMs = (unsigned long)(sleepPeriodTick * OFSM_CONFIG_TICK_US)/1000;
-    #endif
+#endif
         if(_ofsmFlags & _OFSM_FLAG_ALLOW_DEEP_SLEEP && sleepPeriodMs >= 16) {
             _ofsm_deep_sleep_disable_peripheral();
             _ofsm_enter_deep_sleep(sleepPeriodMs);
-            /*when coming out of deep sleep we always re-enable peripherals right away, as we cannot guarantee if continues sleep will be deep sleep again*/
+            /*when coming out of deep sleep we always re-enable peripherals right away, as we cannot guarantee next sleep will be a deep sleep again*/
             _ofsm_deep_sleep_enable_peripheral();
         } else {
             if(!idleSleepFlag) {
@@ -1055,7 +1054,9 @@ unit8_t idleSleepFlag = 0;
 
         /*call heartbeat via milliseconds/microseconds proxy
         unless custom heartbeat provider is implemented*/
+#ifndef OFSM_CONFIG_CUSTOM_HEARTBEAT_PROVIDER
         //....
+#endif
     }
     
     /* enable interrupts; disable sleep */
@@ -1068,7 +1069,8 @@ unit8_t idleSleepFlag = 0;
 
 static inline void _ofsm_enter_idle_sleep() {
 
-    /*wakeup here*/
+    //TBI
+	/*wakeup here*/
     cli();
 }
 
@@ -1081,7 +1083,7 @@ static inline void _ofsm_wdt_vector() {
     if deep sleep was interrupted by external source, 
     then time will not be updated as we don't know how big of a delay was between getting to sleep and external interrupt
     */
-    if(_ofsm_flags &= ~_OFSM_FLAG_OFSM_IN_DEEP_SLEEP) {
+    if(_ofsm_flags & _OFSM_FLAG_OFSM_IN_DEEP_SLEEP) {
         timer0_millis += watchDogDelayMs;
     }
 }
@@ -1105,12 +1107,12 @@ static inline void _ofsm_enter_deep_sleep(unsigned long sleepPeriodMs) {
 	}
     
     MCUSR = 0;     /*clear various "reset" flags*/
-    sbi(WDTCSR, WDCE); /* allow changes */
-    sbi(WDTCSR, WDE); /* disable reset */
+    sbi(WDTCSR, WDCE); /* allow wdt changes */
+    sbi(WDTCSR, WDE); /* disable wdt reset */
     WDTCSR &= (B11111000 | wdtMask); /* set interval */
     wdt_reset();  /* prepare */
 
-    _ofsm_flags |= _OFSM_FLAG_OFSM_IN_DEEP_SLEEP; /*set flag indicating deep sleep. It must be removed on wakeup. Event wakeup happened due to external interrupt! */
+    _ofsm_flags |= _OFSM_FLAG_OFSM_IN_DEEP_SLEEP; /*set flag indicating deep sleep. It must be removed on wakeup or event queuing.*/
     set_sleep_mode (SLEEP_MODE_PWR_DOWN);  
 
     sleep_enable();
@@ -1125,7 +1127,6 @@ static inline void _ofsm_enter_deep_sleep(unsigned long sleepPeriodMs) {
     /*waked up here*/
     cli();
 
-    cbi(WDTCSR, WDIE); /*disable watch dog interrupt*/
     wdt_disable();
     _ofsm_flags &= ~_OFSM_FLAG_OFSM_IN_DEEP_SLEEP;
 }
