@@ -77,7 +77,7 @@ Common defines
 #endif
 
 #ifndef OFSM_CONFIG_TICK_US
-#   define OFSM_CONFIG_TICK_US 1000 /* 1 millisecond */
+#   define OFSM_CONFIG_TICK_US 1000L /* 1 millisecond */
 #endif
 
 /*---------------------
@@ -208,10 +208,14 @@ static inline void  _ofsm_idle_sleep_enable_peripheral() __attribute__((__always
 static inline void  _ofsm_deep_sleep_disable_peripheral() __attribute__((__always_inline__));
 static inline void  _ofsm_deep_sleep_enable_peripheral() __attribute__((__always_inline__));
 
+static inline void _ofsm_heartbeat_proxy_set_time() __attribute__((__always_inline__));
+static inline void _ofsm_heartbeat_ms_us_proxy() __attribute__((__always_inline__));
+
 #include <avr/sleep.h>
 #include <avr/wdt.h>
+#include <avr/power.h>
 
-#define OFSM_MCU_BLOCK
+#define OFSM_MCU_BLOCK 1
 
 #undef OFSM_CONFIG_SIMULATION_SCRIPT_MODE
 #undef OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE
@@ -228,7 +232,7 @@ static inline void  _ofsm_deep_sleep_enable_peripheral() __attribute__((__always
 #define _ofsm_debug_printf(level,  ...)
 
 #ifndef OFSM_CONFIG_CUSTOM_WAKEUP_FUNC
-static inline void _ofsm_wakeup() __attribute__((__always_inline__))
+static inline void _ofsm_wakeup() __attribute__((__always_inline__));
 #	define OFSM_CONFIG_CUSTOM_WAKEUP_FUNC _ofsm_wakeup
 #	define _OFSM_IMPL_WAKEUP
 #endif
@@ -240,6 +244,8 @@ static inline void _ofsm_enter_sleep() __attribute__((__always_inline__));
 #endif
 
 #ifndef OFSM_CONFIG_ATOMIC_BLOCK
+#	undef __inline__
+#	define __inline__ inline
 #	include <util/atomic.h>
 #	define OFSM_CONFIG_ATOMIC_BLOCK ATOMIC_BLOCK
 #endif

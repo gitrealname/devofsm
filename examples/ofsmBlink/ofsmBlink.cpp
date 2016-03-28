@@ -23,8 +23,8 @@ OFSM_DECLARE_GROUP_1(MainGroup, EVENT_QUEUE_SIZE, DefaultFsm);
 OFSM_DECLARE_1(MainGroup);
 
 #define ledPin 13
-#define ticksOn  1500 /*number of ticks to be in On state*/
-#define ticksOff 100 /*number of ticks to be in Off state*/
+#define ticksOn  3000 /*number of ticks to be in On state*/
+#define ticksOff 3000 /*number of ticks to be in Off state*/
 
 /* Setup */
 void setup() {
@@ -32,6 +32,14 @@ void setup() {
 #if OFSM_MCU_BLOCK
     /* initialize digital ledPin as an output.*/
     pinMode(ledPin, OUTPUT);
+	/* set up Serial library at 9600 bps */
+	Serial.begin(9600); 
+
+	Serial.println(); //DBG
+	Serial.print(" setup MCUSR: "); //DBG
+	Serial.print(MCUSR); //DBG
+	Serial.println(); //DBG
+
 #endif 
     OFSM_SETUP();
 }
@@ -47,7 +55,9 @@ void OnHandler(OFSMState *fsms) {
 	ofsm_debug_printf(1, "Turning Led ON for %i ticks.\n", ticksOn);
 	fsm_set_transition_delay_deep_sleep(fsms, ticksOn);
 #if OFSM_MCU_BLOCK
-	digitalWrite(led, HIGH);
+	digitalWrite(ledPin, HIGH);
+	Serial.println("On");
+	delay(50);
 #endif
 }
 
@@ -55,7 +65,9 @@ void OffHandler(OFSMState *fsms) {
 	ofsm_debug_printf(1, "Turning Led OFF for %i ticks.\n", ticksOff);
 	fsm_set_transition_delay_deep_sleep(fsms, ticksOff);
 #if OFSM_MCU_BLOCK
-	digitalWrite(led, LOW);
+	digitalWrite(ledPin, LOW);
+	Serial.println("Off");
+	delay(50);
 #endif
 }
 
