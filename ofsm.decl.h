@@ -199,7 +199,7 @@ OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { \
 #else /*is NOT OFSM_CONFIG_SIMULATION*/
 
 static inline void _ofsm_setup_hardware()  __attribute__((__always_inline__));
-static inline void _ofsm_enter_idle_sleep() __attribute__((__always_inline__));
+static inline void _ofsm_enter_idle_sleep(unsigned long sleepPeriodUs) __attribute__((__always_inline__));
 static inline void _ofsm_enter_deep_sleep(unsigned long sleepPeriodMs) __attribute__((__always_inline__));
 static inline void _ofsm_wdt_vector() __attribute__((__always_inline__));
 

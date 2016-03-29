@@ -2,7 +2,7 @@
 #ifndef __OFSM_IMPL_H_
 #define __OFSM_IMPL_H_
 
-#include <HardwareSerial.h> //DBG
+/* #include <HardwareSerial.h> //may be included for debugging purposes  */
 #ifndef OFSM_CONFIG_CUSTOM_HEARTBEAT_PROVIDER
 #	include <Arduino.h>
 #endif
@@ -1004,7 +1004,6 @@ MCU specific code
 #ifndef OFSM_CONFIG_SIMULATION
 static inline void _ofsm_setup_hardware() {
     //TBI:
-	MCUSR = 0; /*clear MCU Status Register;  MCU Status Register provides information on which reset source caused an MCU reset.*/
 }/*_ofsm_setup_hardware*/
 
 static inline void _ofsm_wakeup() {
@@ -1037,15 +1036,6 @@ static inline void _ofsm_deep_sleep_enable_peripheral() {
 static inline void _ofsm_enter_sleep() {
 uint8_t idleSleepFlag = 0;
 
-	Serial.print(" P: "); //DBG
-	Serial.print(_ofsmWakeupTime - _ofsmTime); //DBG
-	Serial.print(" CT: "); //DBG
-	Serial.print(_ofsmTime); //DBG
-	Serial.println(); //DBG
-	delay(50); //DBG
-
-
-
 	cli(); /*disable interrupts*/
     while(!(_ofsmFlags & _OFSM_FLAG_OFSM_EVENT_QUEUED)) {
         /* determine if we need to use watch dog timer */
@@ -1065,7 +1055,7 @@ uint8_t idleSleepFlag = 0;
                 _ofsm_deep_sleep_disable_peripheral();
             }
             idleSleepFlag |= 1;
-			_ofsm_enter_idle_sleep();
+			_ofsm_enter_idle_sleep(sleepPeriodTick * OFSM_CONFIG_TICK_US);
             /*after idle sleep we still don't know if we are going to continue sleep or not, postpone enable peripherals until after the sleep*/
         }
         /*waked up continues here*/
@@ -1078,11 +1068,6 @@ uint8_t idleSleepFlag = 0;
     }
     
     /* enable interrupts; disable sleep */
-	Serial.print(" A: CT: "); //DBG
-	Serial.print(_ofsmTime); //DBG
-	Serial.println(); //DBG
-	delay(50); //DBG
-
 	sei();
 	sleep_disable();
     if(idleSleepFlag) {
@@ -1105,11 +1090,29 @@ static inline void _ofsm_heartbeat_ms_us_proxy() {
 	if (diff >= OFSM_CONFIG_TICK_US) {
 		ofsm_heartbeat(_ofsmTime + (unsigned long)(diff / OFSM_CONFIG_TICK_US));
 		_ofsmCurrentProxyTimeUs = curArduinoTimeUs;
+
+		/* timing debug helper */
+		/*
+		Serial.print(" _ofsmCurrentProxyTimeUs: "); 
+		Serial.print(_ofsmCurrentProxyTimeUs);
+		Serial.println(); 
+		delay(50); 
+		cli(); 
+		*/
 	}
 }
 #endif
 
-static inline void _ofsm_enter_idle_sleep() {
+static inline void _ofsm_enter_idle_sleep(unsigned long sleepPeriodUs) {
+
+	/* timing debug helper */
+	/*
+	Serial.print("ISUs: "); 
+	Serial.print(sleepPeriodUs);
+	Serial.println();
+	delay(50);
+	cli();
+	*/
 
 	set_sleep_mode(SLEEP_MODE_IDLE);
 	sleep_enable();
@@ -1130,7 +1133,7 @@ static inline void _ofsm_enter_idle_sleep() {
 
 extern volatile unsigned long timer0_millis; /*Arduino timer0 variable*/
 extern volatile unsigned long timer0_overflow_count; /*Arduino timer0 overflow counter*/
-volatile uint16_t watchDogDelayMs;
+volatile uint16_t _ofsmWatchdogDelayMs;
 
 static inline void _ofsm_wdt_vector() {
     /*try to update Arduino timer variables, to keep time relatively correct.
@@ -1138,10 +1141,9 @@ static inline void _ofsm_wdt_vector() {
     then time will not be updated as we don't know how big of a delay was between getting to sleep and external interrupt
     */
 	if(_ofsmFlags & _OFSM_FLAG_OFSM_IN_DEEP_SLEEP) {
-		timer0_millis += watchDogDelayMs;
+		timer0_millis += _ofsmWatchdogDelayMs;
 		/*update Arduino overflow counter*/
-		timer0_overflow_count += (unsigned long)((watchDogDelayMs * 1000L) / MICROSECONDS_PER_TIMER0_OVERFLOW);
-		Serial.println("*"); //DBG
+		timer0_overflow_count += (unsigned long)((_ofsmWatchdogDelayMs * 1000L) / MICROSECONDS_PER_TIMER0_OVERFLOW);
 	}
 }
 
@@ -1159,50 +1161,35 @@ ISR(WDT_vect) {
 static inline void _ofsm_enter_deep_sleep(unsigned long sleepPeriodMs) {
     uint8_t wdtMask = 0;
 
-	sei(); //DBG
-	Serial.print(" sleepPeriodMs: "); //DBG
-	Serial.print(sleepPeriodMs); //DBG
-	Serial.println(); //DBG
-	delay(100); //DBG
-	cli(); //DBG
+	/* timing debug helper */
+	/*
+	Serial.print("DSMs: ");
+	Serial.print(sleepPeriodMs);
+	Serial.println();
+	delay(50);
+	cli(); 
+	*/
 
 	if(sleepPeriodMs >= 8192L) {
 		wdtMask = _OFSM_MAX_SLEEP_MASK; /*8 sec*/
-		watchDogDelayMs = 16L << _OFSM_MAX_SLEEP_MASK;
+		_ofsmWatchdogDelayMs = 16L << _OFSM_MAX_SLEEP_MASK;
 	} else {
 		uint16_t probe = 16;
 		for(wdtMask = 0; wdtMask < _OFSM_MAX_SLEEP_MASK && probe <= (uint16_t)sleepPeriodMs; wdtMask++) {
 			probe  = probe << 1;
 		}
 		wdtMask--;
-        watchDogDelayMs = probe >> 1;
+        _ofsmWatchdogDelayMs = probe >> 1;
 	}
 	_ofsmFlags |= _OFSM_FLAG_OFSM_IN_DEEP_SLEEP; /*set flag indicating deep sleep. It must be cleared on wakeup or event queuing.*/
 
-	Serial.print(" Mask: "); //DBG
-	Serial.print(wdtMask, BIN); //DBG
-	Serial.println(); //DBG
-	unsigned long tmp = micros(); //DBG
-
-
-	sei(); //DBG
-	uint8_t wdtcsr = ((1 <<6) | (1 <<3) | wdtMask); //DBG
-	Serial.print(" WDTCSR: "); //DBG
-	Serial.print((int)wdtcsr,BIN); //DBG
-	Serial.println(); //DBG
-
-	delay(200);
-	cli(); //DBG
-
-
 	set_sleep_mode(SLEEP_MODE_PWR_DOWN);
 	sleep_enable();
-
+	MCUSR &= ~(1 << WDRF); /*Watchdog Reset Flag*/
 	wdt_reset();  /* prepare */
-	WDTCSR = (1 << WDCE) | (1 << WDE); /*enable change; timing sequence goes from here*/
-	WDTCSR |= ((1 << WDIE) | (1 << WDE) | wdtMask); /* set interrupt mode, set prescaler bits */
+	WDTCSR |= ((1 << WDCE) | (1 << WDE)); /*enable change; timing sequence goes from here*/
+	WDTCSR = ((1 << WDIE) | (wdtMask));	  /* set interrupt mode, set prescaler bits (2sec) */
 	
-
 	/* turn off brown-out detector*/
 	sleep_bod_disable();
 
@@ -1210,11 +1197,6 @@ static inline void _ofsm_enter_deep_sleep(unsigned long sleepPeriodMs) {
 	sleep_cpu();
 	/*------------------------------------------*/
     /*waked up here*/
-	Serial.print(" micros() - tmp: ");
-	Serial.print(micros() - tmp); //DBG
-	Serial.println(); //DBG
-	delay(150); //DBG
-
 	cli();
 
     wdt_disable();
