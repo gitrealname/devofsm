@@ -8,8 +8,8 @@ enum FsmId	{DefaultFsm = 0};
 enum FsmGrpId {MainGroup = 0};
 
 /* Handlers declaration */
-void OnHandler(OFSMState *fsms);
-void OffHandler(OFSMState *fsms);
+void OnHandler();
+void OffHandler();
 
 /* OFSM configuration */
 OFSMTransition transitionTable[][1 + Timeout] = {
@@ -33,7 +33,7 @@ void setup() {
     /* initialize digital ledPin as an output.*/
     pinMode(ledPin, OUTPUT);
 	/* set up Serial library at 9600 bps */
-	Serial.begin(9600); 
+	//Serial.begin(9600); 
 #endif 
     OFSM_SETUP();
 }
@@ -45,22 +45,22 @@ void loop() {
 
 
 /* Handler implementation */
-void OnHandler(OFSMState *fsms) {
+void OnHandler() {
 	ofsm_debug_printf(1, "Turning Led ON for %i ticks.\n", ticksOn);
-	fsm_set_transition_delay_deep_sleep(fsms, ticksOn);
+	fsm_set_transition_delay_deep_sleep(ticksOn);
 #if OFSM_MCU_BLOCK
 	digitalWrite(ledPin, HIGH);
-	Serial.println("On");
+	//Serial.println("On");
 	delay(10);
 #endif
 }
 
-void OffHandler(OFSMState *fsms) {
+void OffHandler() {
 	ofsm_debug_printf(1, "Turning Led OFF for %i ticks.\n", ticksOff);
-	fsm_set_transition_delay_deep_sleep(fsms, ticksOff);
+	fsm_set_transition_delay_deep_sleep(ticksOff);
 #if OFSM_MCU_BLOCK
 	digitalWrite(ledPin, LOW);
-	Serial.println("Off");
+	//Serial.println("Off");
 	delay(10);
 #endif
 }

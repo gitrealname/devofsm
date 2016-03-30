@@ -44,7 +44,7 @@ struct OFSMEventData;
 struct OFSM;
 struct OFSMState;
 struct OFSMGroup;
-typedef void(*OFSMHandler)(OFSMState *fsmState);
+typedef void(*OFSMHandler)();
 
 /*#define ofsm_get_time(time,timeFlags) //see implementation below */
 
@@ -155,7 +155,7 @@ OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { \
 #endif
 
 #ifndef OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE
-#   define OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE 0
+#   define OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE 3
 #endif
 
 #ifndef OFSM_CONFIG_CUSTOM_SIMULATION_EVENT_GENERATOR_FUNC
@@ -198,18 +198,13 @@ OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { \
 
 #else /*is NOT OFSM_CONFIG_SIMULATION*/
 
-static inline void _ofsm_setup_hardware()  __attribute__((__always_inline__));
 static inline void _ofsm_enter_idle_sleep(unsigned long sleepPeriodUs) __attribute__((__always_inline__));
 static inline void _ofsm_enter_deep_sleep(unsigned long sleepPeriodMs) __attribute__((__always_inline__));
-static inline void _ofsm_wdt_vector() __attribute__((__always_inline__));
 
-static inline void  _ofsm_idle_sleep_disable_peripheral() __attribute__((__always_inline__));
-static inline void  _ofsm_idle_sleep_enable_peripheral() __attribute__((__always_inline__));
-static inline void  _ofsm_deep_sleep_disable_peripheral() __attribute__((__always_inline__));
-static inline void  _ofsm_deep_sleep_enable_peripheral() __attribute__((__always_inline__));
-
+#ifndef OFSM_CONFIG_CUSTOM_HEARTBEAT_PROVIDER
 static inline void _ofsm_heartbeat_proxy_set_time() __attribute__((__always_inline__));
 static inline void _ofsm_heartbeat_ms_us_proxy() __attribute__((__always_inline__));
+#endif
 
 #include <avr/sleep.h>
 #include <avr/wdt.h>
@@ -230,6 +225,36 @@ static inline void _ofsm_heartbeat_ms_us_proxy() __attribute__((__always_inline_
 
 #define ofsm_debug_printf(level,  ...)
 #define _ofsm_debug_printf(level,  ...)
+
+#ifndef OFSM_CONFIG_CUSTOM_IDLE_SLEEP_DISABLE_PERIPHERAL_FUNC
+static inline void  _ofsm_idle_sleep_disable_peripheral() __attribute__((__always_inline__));
+#	define OFSM_CONFIG_CUSTOM_IDLE_SLEEP_DISABLE_PERIPHERAL_FUNC _ofsm_idle_sleep_disable_peripheral
+#	define OFSM_IMPL_IDLE_SLEEP_DISABLE_PERIPHERAL
+#endif
+
+#ifndef OFSM_CONFIG_CUSTOM_IDLE_SLEEP_ENABLE_PERIPHERAL_FUNC
+static inline void  _ofsm_idle_sleep_enable_peripheral() __attribute__((__always_inline__));
+#	define OFSM_CONFIG_CUSTOM_IDLE_SLEEP_ENABLE_PERIPHERAL_FUNC _ofsm_idle_sleep_enable_peripheral
+#	define OFSM_IMPL_IDLE_SLEEP_ENABLE_PERIPHERAL
+#endif
+
+#ifndef OFSM_CONFIG_CUSTOM_DEEP_SLEEP_DISABLE_PERIPHERAL_FUNC
+static inline void  _ofsm_deep_sleep_disable_peripheral() __attribute__((__always_inline__));
+#	define OFSM_CONFIG_CUSTOM_DEEP_SLEEP_DISABLE_PERIPHERAL_FUNC _ofsm_deep_sleep_disable_peripheral
+#	define OFSM_IMPL_DEEP_SLEEP_DISABLE_PERIPHERAL
+#endif
+
+#ifndef OFSM_CONFIG_CUSTOM_DEEP_SLEEP_ENABLE_PERIPHERAL_FUNC
+static inline void  _ofsm_deep_sleep_enable_peripheral() __attribute__((__always_inline__));
+#	define OFSM_CONFIG_CUSTOM_DEEP_SLEEP_ENABLE_PERIPHERAL_FUNC _ofsm_deep_sleep_enable_peripheral
+#	define OFSM_IMPL_DEEP_SLEEP_ENABLE_PERIPHERAL
+#endif
+
+#ifndef OFSM_CONFIG_CUSTOM_WATCHDOG_INTERRUPT_HANDLER_FUNC
+static inline void _ofsm_wdt_vector() __attribute__((__always_inline__));
+#	define OFSM_CONFIG_CUSTOM_WATCHDOG_INTERRUPT_HANDLER_FUNC _ofsm_wdt_vector
+#	define OFSM_IMPL_WATCHDOG_INTERRUPT_HANDLER
+#endif
 
 #ifndef OFSM_CONFIG_CUSTOM_WAKEUP_FUNC
 static inline void _ofsm_wakeup() __attribute__((__always_inline__));
@@ -332,34 +357,34 @@ Flags
 /*------------------------------------------------
 Macros
 -------------------------------------------------*/
-#define fsm_prevent_transition(fsms)					((fsms->fsm)[0].flags |= _OFSM_FLAG_FSM_PREVENT_TRANSITION)
+#define fsm_prevent_transition()					((_ofsmCurrentFsmState->fsm)[0].flags |= _OFSM_FLAG_FSM_PREVENT_TRANSITION)
 
-#define fsm_set_transition_delay(fsms, delayTicks)		((fsms->fsm)[0].wakeupTime = delayTicks, (fsms->fsm)[0].flags |= _OFSM_FLAG_FSM_HANDLER_SET_TRANSITION_DELAY)
-#define fsm_set_transition_delay_deep_sleep(fsms, delayTicks) (fsm_set_transition_delay(fsms, delayTicks), (fsms->fsm)[0].flags |= _OFSM_FLAG_ALLOW_DEEP_SLEEP)
-#define fsm_set_infinite_delay(fsms)					((fsms->fsm)[0].flags |= _OFSM_FLAG_INFINITE_SLEEP)
-#define fsm_set_infinite_delay_deep_sleep(fsms)         (fsm_set_infinite_delay(fsms), (fsms->fsm)[0].flags |= _OFSM_FLAG_ALLOW_DEEP_SLEEP)
-#define fsm_set_next_state(fsms, nextStateId)			((fsms->fsm)[0].flags |= _OFSM_FLAG_FSM_NEXT_STATE_OVERRIDE, (fsms->fsm)[0].currentState = nextStateId)
+#define fsm_set_transition_delay(delayTicks)		((_ofsmCurrentFsmState->fsm)[0].wakeupTime = delayTicks, (_ofsmCurrentFsmState->fsm)[0].flags |= _OFSM_FLAG_FSM_HANDLER_SET_TRANSITION_DELAY)
+#define fsm_set_transition_delay_deep_sleep(delayTicks) (fsm_set_transition_delay(delayTicks), (_ofsmCurrentFsmState->fsm)[0].flags |= _OFSM_FLAG_ALLOW_DEEP_SLEEP)
+#define fsm_set_infinite_delay()					((_ofsmCurrentFsmState->fsm)[0].flags |= _OFSM_FLAG_INFINITE_SLEEP)
+#define fsm_set_infinite_delay_deep_sleep()         (fsm_set_infinite_delay(), (_ofsmCurrentFsmState->fsm)[0].flags |= _OFSM_FLAG_ALLOW_DEEP_SLEEP)
+#define fsm_set_next_state(nextStateId)			((_ofsmCurrentFsmState->fsm)[0].flags |= _OFSM_FLAG_FSM_NEXT_STATE_OVERRIDE, (_ofsmCurrentFsmState->_ofsmCurrentFsmState)[0].currentState = nextStateId)
 
-#define fsm_get_private_data(fsms)						((fsms->fsm)[0].fsmPrivateInfo)
-#define fsm_get_private_data_cast(fsms, castType)		((castType)((fsm->fsm)[0].PrivateInfo)
-#define fsm_get_state(fsms)								((fsms->fsm)[0].currentState)
-#define fsm_get_time_left_before_timeout(fsms)          (fsms->timeLeftBeforeTimeout)
-#define fsm_get_fsm_index(fsms)							(fsms->index)
-#define fsm_get_group_index(fsms)						(fsms->groupIndex)
-#define fsm_get_event_code(fsms)						((fsms->e)[0].eventCode)
+#define fsm_get_private_data()						((_ofsmCurrentFsmState->fsm)[0].fsmPrivateInfo)
+#define fsm_get_private_data_cast(castType)		((castType)((_ofsmCurrentFsmState->fsm)[0].PrivateInfo)
+#define fsm_get_state()								((_ofsmCurrentFsmState->fsm)[0].currentState)
+#define fsm_get_time_left_before_timeout()          (_ofsmCurrentFsmState->timeLeftBeforeTimeout)
+#define fsm_get_fsm_index()							(_ofsmCurrentFsmState->index)
+#define fsm_get_group_index()						(_ofsmCurrentFsmState->groupIndex)
+#define fsm_get_event_code()						((_ofsmCurrentFsmState->e)[0].eventCode)
 #ifdef OFSM_CONFIG_SUPPORT_EVENT_DATA
-#   define fsm_get_event_data(fsms)						((fsms->e)[0].eventData)
+#   define fsm_get_event_data()						((_ofsmCurrentFsmState->e)[0].eventData)
 #else
-#	define fsm_get_event_data(fsms)						0
+#	define fsm_get_event_data()						0
 #endif
-#define fsm_queue_group_event(fsms, forceNewEvent, eventCode, eventData) \
-    ofsm_queue_group_event(fsm_get_group_index(fsms), bool forceNewEvent, uint8_t eventCode, OFSM_CONFIG_EVENT_DATA_TYPE eventData)
+#define fsm_queue_group_event(forceNewEvent, eventCode, eventData) \
+    ofsm_queue_group_event(fsm_get_group_index(), bool forceNewEvent, uint8_t eventCode, OFSM_CONFIG_EVENT_DATA_TYPE eventData)
 
 
-#define ofsm_get_time(currentTime, timeFlags) \
+#define ofsm_get_time(outCurrentTime, outTimeFlags) \
     OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) { \
-        timeFlags = _ofsmFlags & _OFSM_FLAG_OFSM_TIMER_OVERFLOW; \
-        currentTime = _ofsmTime; \
+        outTimeFlags = _ofsmFlags & _OFSM_FLAG_OFSM_TIMER_OVERFLOW; \
+        outCurrentTime = _ofsmTime; \
     }
 
 #define _OFSM_GET_TRANSTION(fsm, eventCode) ((OFSMTransition*)( (fsm->transitionTableEventCount * fsm->currentState +  eventCode) * sizeof(OFSMTransition) + (char*)fsm->transitionTable) )
@@ -374,9 +399,12 @@ Global variables
 -------------------------------------------------*/
 extern OFSMGroup**				        _ofsmGroups;
 extern uint8_t                          _ofsmGroupCount;
+extern OFSMState*						_ofsmCurrentFsmState;
 extern volatile uint8_t                 _ofsmFlags;
 extern volatile _OFSM_TIME_DATA_TYPE    _ofsmWakeupTime;
 extern volatile _OFSM_TIME_DATA_TYPE    _ofsmTime;
+
+extern volatile uint16_t				_ofsmWatchdogDelayMs;
 
 /*----------------------------------------------
 Setup helper macros

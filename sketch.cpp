@@ -19,30 +19,30 @@
 /*--------------------------------
 Handlers
 --------------------------------*/
-void handleInit(OFSMState *fsm) {
-	ofsm_debug_printf(1, "H(%i-%i): handleInit\n", fsm_get_state(fsm), fsm_get_event_code(fsm));
+void handleInit() {
+	ofsm_debug_printf(1, "H(%i-%i): handleInit\n", fsm_get_state(), fsm_get_event_code());
 }
 
-void handleS0E1(OFSMState *fsm) {
-	ofsm_debug_printf(1, "H(%i-%i): handleS0E1\n", fsm_get_state(fsm), fsm_get_event_code(fsm));
+void handleS0E1() {
+	ofsm_debug_printf(1, "H(%i-%i): handleS0E1\n", fsm_get_state(), fsm_get_event_code());
 }
 
-void handleS0E2(OFSMState *fsm) {
-	ofsm_debug_printf(1, "H(%i-%i): handleS0E2\n", fsm_get_state(fsm), fsm_get_event_code(fsm));
-	fsm_set_transition_delay(fsm, 10);
+void handleS0E2() {
+	ofsm_debug_printf(1, "H(%i-%i): handleS0E2\n", fsm_get_state(), fsm_get_event_code());
+	fsm_set_transition_delay(10);
 }
 
-void handleS1E1(OFSMState *fsm) {
-	ofsm_debug_printf(1, "H(%i-%i): handleS1E1\n", fsm_get_state(fsm), fsm_get_event_code(fsm));
+void handleS1E1() {
+	ofsm_debug_printf(1, "H(%i-%i): handleS1E1\n", fsm_get_state(), fsm_get_event_code());
 }
 
-void handlerTimeout(OFSMState *fsm) {
-	ofsm_debug_printf(1, "H(%i-%i): handleTimeout\n", fsm_get_state(fsm), fsm_get_event_code(fsm));
+void handlerTimeout() {
+	ofsm_debug_printf(1, "H(%i-%i): handleTimeout\n", fsm_get_state(), fsm_get_event_code());
 }
 
-void handlerE3Failure(OFSMState *fsm) {
-	ofsm_debug_printf(1, "H(%i-%i): handlerE3Failure\n", fsm_get_state(fsm), fsm_get_event_code(fsm));
-	fsm_prevent_transition(fsm);
+void handlerE3Failure() {
+	ofsm_debug_printf(1, "H(%i-%i): handlerE3Failure\n", fsm_get_state(), fsm_get_event_code());
+	fsm_prevent_transition();
 }
 
 enum Event { Timeout, E1, E2, E3 };

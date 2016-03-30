@@ -2,9 +2,11 @@
 #ifndef __OFSM_IMPL_H_
 #define __OFSM_IMPL_H_
 
+#ifndef OFSM_CONFIG_SIMULATION
 /* #include <HardwareSerial.h> //may be included for debugging purposes  */
-#ifndef OFSM_CONFIG_CUSTOM_HEARTBEAT_PROVIDER
-#	include <Arduino.h>
+#	ifndef OFSM_CONFIG_CUSTOM_HEARTBEAT_PROVIDER
+#		include <Arduino.h>
+#	endif
 #endif
 
 #include "ofsm.decl.h"
@@ -15,6 +17,7 @@ Global variables
 
 OFSMGroup**				_ofsmGroups;
 uint8_t                 _ofsmGroupCount;
+OFSMState*				_ofsmCurrentFsmState;
 volatile uint8_t        _ofsmFlags;
 volatile _OFSM_TIME_DATA_TYPE  _ofsmWakeupTime;
 volatile _OFSM_TIME_DATA_TYPE  _ofsmTime;
@@ -89,8 +92,8 @@ static inline void _ofsm_fsm_process_event(OFSM *fsm, uint8_t groupIndex, uint8_
             fsmState.timeLeftBeforeTimeout = oldWakeupTime - currentTime; /* time overflow will be accounted for*/
         }
     }
-
-    (t->eventHandler)(&fsmState);
+	_ofsmCurrentFsmState = &fsmState;
+    (t->eventHandler)();
 
     //check if error was reported, restore original FSM state
     if (fsm->flags & _OFSM_FLAG_FSM_PREVENT_TRANSITION) {
@@ -219,8 +222,6 @@ void _ofsm_setup() {
             fsm->currentState = 0;
         }
     }
-#else
-    _ofsm_setup_hardware();
 #endif /*OFSM_CONFIG_SIMULATION*/
 
 #ifdef OFSM_CONFIG_SUPPORT_INITIALIZATION_HANDLER
@@ -242,8 +243,9 @@ void _ofsm_setup() {
             fsmState.timeLeftBeforeTimeout = 0;
             fsmState.groupIndex = i;
             fsmState.fsmIndex = k;
+			_ofsmCurrentFsmState = &fsmState;
             if (fsm->initHandler) {
-                (fsm->initHandler)(&fsmState);
+                (fsm->initHandler)();
             }
         }
     }
@@ -261,15 +263,18 @@ void _ofsm_start() {
     uint8_t timeFlags;
 #ifdef OFSM_CONFIG_SIMULATION
     bool doReturn = false;
+#else
+#	ifndef OFSM_CONFIG_CUSTOM_HEARTBEAT_PROVIDER
+	_ofsm_heartbeat_proxy_set_time();
+#	endif
 #endif
 
-	_ofsm_heartbeat_proxy_set_time();
-	//start main loop
+	/*start main loop*/
     do
     {
         OFSM_CONFIG_ATOMIC_BLOCK(OFSM_CONFIG_ATOMIC_RESTORESTATE) {
-            _ofsmFlags |= _OFSM_FLAG_INFINITE_SLEEP; //prevents _ofsm_check_timeout() to ever accessing _ofsmWakeupTime and queue timeout while in process
-            _ofsmFlags &= ~_OFSM_FLAG_OFSM_EVENT_QUEUED; //reset event queued flag
+            _ofsmFlags |= _OFSM_FLAG_INFINITE_SLEEP; /*prevents _ofsm_check_timeout() to ever accessing _ofsmWakeupTime and queue timeout while in process*/
+            _ofsmFlags &= ~_OFSM_FLAG_OFSM_EVENT_QUEUED; /*reset event queued flag*/
 #ifdef OFSM_CONFIG_SIMULATION
             if (_ofsmFlags &_OFSM_FLAG_OFSM_SIMULATION_EXIT) {
                 doReturn = true; /*don't return or break here!!, or ATOMIC_BLOCK mutex will remain blocked*/
@@ -507,6 +512,7 @@ struct OFSMSimulationStatusReport {
     _OFSM_TIME_DATA_TYPE ofsmTime;
     //OFSM status
     bool ofsmInfiniteSleep;
+	bool ofsmDeepSleepMode;
     bool ofsmTimerOverflow;
     bool ofsmScheduledTimeOverflow;
     _OFSM_TIME_DATA_TYPE ofsmScheduledWakeupTime;
@@ -547,10 +553,11 @@ static inline std::string &toLower(std::string &s) {
 #ifdef _OFSM_IMPL_SIMULATION_STATUS_REPORT_PRINTER
 void _ofsm_simulation_status_report_printer(OFSMSimulationStatusReport *r) {
     char buf[80];
-    _ofsm_snprintf(buf, (sizeof(buf) / sizeof(*buf)), "-O[%c]-G(%i)[%c,%03d]-F(%i)[%c%c%c]-S(%i)-TW[%010lu%c,O:%010lu%c,F:%010lu%c]"
+    _ofsm_snprintf(buf, (sizeof(buf) / sizeof(*buf)), "-O[%c%c]-G(%i)[%c,%03d]-F(%i)[%c%c%c]-S(%i)-TW[%010lu%c,O:%010lu%c,F:%010lu%c]"
         //OFSM (-O)
         , (r->ofsmInfiniteSleep ? 'I' : 'i')
-        //Group (-G)
+		, (r->ofsmDeepSleepMode ? 'D' : 'd')
+		//Group (-G)
         , r->grpIndex
         , (r->grpEventBufferOverflow ? '!' : '.')
         , (r->grpPendingEventCount)
@@ -581,6 +588,7 @@ void _ofsm_simulation_create_status_report(OFSMSimulationStatusReport *r, uint8_
         r->ofsmTime = _ofsmTime;
         //OFSM
         r->ofsmInfiniteSleep = (bool)((_ofsmFlags & _OFSM_FLAG_INFINITE_SLEEP) > 0);
+		r->ofsmDeepSleepMode = (bool)((_ofsmFlags & _OFSM_FLAG_ALLOW_DEEP_SLEEP) > 0);
         r->ofsmTimerOverflow = (bool)((_ofsmFlags & _OFSM_FLAG_OFSM_TIMER_OVERFLOW) > 0);
         r->ofsmScheduledTimeOverflow = (bool)((_ofsmFlags & _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW) > 0);
         r->ofsmScheduledWakeupTime = _ofsmWakeupTime;
@@ -1002,36 +1010,41 @@ MCU specific code
 ----------------------------------------*/
 
 #ifndef OFSM_CONFIG_SIMULATION
-static inline void _ofsm_setup_hardware() {
-    //TBI:
-}/*_ofsm_setup_hardware*/
 
 static inline void _ofsm_wakeup() {
 }
 
+#ifdef OFSM_IMPL_IDLE_SLEEP_DISABLE_PERIPHERAL
 static inline void  _ofsm_idle_sleep_disable_peripheral() {
     power_adc_disable();
     power_spi_disable();
     power_twi_disable();
 }
+#endif
 
+#ifdef OFSM_IMPL_IDLE_SLEEP_ENABLE_PERIPHERAL
 static inline void _ofsm_idle_sleep_enable_peripheral() {
     power_twi_enable();
     power_spi_enable();
     power_adc_enable();
 }
+#endif
 
+#ifdef OFSM_IMPL_DEEP_SLEEP_DISABLE_PERIPHERAL
 static inline void  _ofsm_deep_sleep_disable_peripheral() {
     power_adc_disable();
     power_spi_disable();
     power_twi_disable();
 }
+#endif
 
+#ifdef OFSM_IMPL_DEEP_SLEEP_ENABLE_PERIPHERAL
 static inline void _ofsm_deep_sleep_enable_peripheral() {
     power_twi_enable();
     power_spi_enable();
     power_adc_enable();
 }
+#endif
 
 static inline void _ofsm_enter_sleep() {
 uint8_t idleSleepFlag = 0;
@@ -1046,13 +1059,13 @@ uint8_t idleSleepFlag = 0;
         unsigned long sleepPeriodMs = (unsigned long)(sleepPeriodTick * OFSM_CONFIG_TICK_US)/1000L;
 #endif
         if(_ofsmFlags & _OFSM_FLAG_ALLOW_DEEP_SLEEP && sleepPeriodMs >= 16) {
-            _ofsm_deep_sleep_disable_peripheral();
+			OFSM_CONFIG_CUSTOM_DEEP_SLEEP_DISABLE_PERIPHERAL_FUNC();
 			_ofsm_enter_deep_sleep(sleepPeriodMs);
             /*when coming out of deep sleep we always re-enable peripherals right away, as we cannot guarantee next sleep will be a deep sleep again*/
-            _ofsm_deep_sleep_enable_peripheral();
+			OFSM_CONFIG_CUSTOM_DEEP_SLEEP_ENABLE_PERIPHERAL_FUNC();
         } else {
             if(!idleSleepFlag) {
-                _ofsm_deep_sleep_disable_peripheral();
+				OFSM_CONFIG_CUSTOM_IDLE_SLEEP_DISABLE_PERIPHERAL_FUNC();
             }
             idleSleepFlag |= 1;
 			_ofsm_enter_idle_sleep(sleepPeriodTick * OFSM_CONFIG_TICK_US);
@@ -1071,7 +1084,7 @@ uint8_t idleSleepFlag = 0;
 	sei();
 	sleep_disable();
     if(idleSleepFlag) {
-        _ofsm_idle_sleep_enable_peripheral();
+		OFSM_CONFIG_CUSTOM_IDLE_SLEEP_ENABLE_PERIPHERAL_FUNC();
     }
 }
 
@@ -1126,14 +1139,17 @@ static inline void _ofsm_enter_idle_sleep(unsigned long sleepPeriodUs) {
 }
 
 #ifndef MICROSECONDS_PER_TIMER0_OVERFLOW
-	/* the prescaler is set so that timer0 ticks every 64 clock cycles, and the
+	/* In Arduino environment the prescaler is set so that timer0 ticks every 64 clock cycles, and the
 	 the overflow handler is called every 256 ticks. */
 #	define MICROSECONDS_PER_TIMER0_OVERFLOW (clockCyclesToMicroseconds(64 * 256))
 #endif
 
+volatile uint16_t _ofsmWatchdogDelayMs;
+
+
+#ifdef OFSM_IMPL_WATCHDOG_INTERRUPT_HANDLER
 extern volatile unsigned long timer0_millis; /*Arduino timer0 variable*/
 extern volatile unsigned long timer0_overflow_count; /*Arduino timer0 overflow counter*/
-volatile uint16_t _ofsmWatchdogDelayMs;
 
 static inline void _ofsm_wdt_vector() {
     /*try to update Arduino timer variables, to keep time relatively correct.
@@ -1146,9 +1162,10 @@ static inline void _ofsm_wdt_vector() {
 		timer0_overflow_count += (unsigned long)((_ofsmWatchdogDelayMs * 1000L) / MICROSECONDS_PER_TIMER0_OVERFLOW);
 	}
 }
+#endif
 
 ISR(WDT_vect) {
-    _ofsm_wdt_vector();
+	OFSM_CONFIG_CUSTOM_WATCHDOG_INTERRUPT_HANDLER_FUNC();
 }
 
 /*chip specific MAX watchdog sleep period*/

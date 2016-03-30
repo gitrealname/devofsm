@@ -38,12 +38,9 @@ Important design decisions and usage notes:
 * Structure of application should resemble Arduino sketch, namely it should have void setup() {...} and void loop() {...} functions. main(...) function should not be defined or
   it needs to be surrounded by #ifndef OFSM_CONFIG_SIMULATION ... main(...) #endif for simulation to work, as it declares its own main() function.
 * OFSM is relaying on external "heartbeat" provider, so it can be easily replaced and configured independently.
-  Default provider uses Timer0. Which breaks all Arduino's time API. 
-  This is done on purpose, as state machine is based on completely different paradigm where only relative time is important for proper functioning;
-  Any use of delay(...), micros() and millis(...) may indicate bad state machine design.
+  Default provider piggybacks Arduino Timer0, millis() and micros() functions. 
 * Internal time within OFSM is measured in ticks. Tick may represent microseconds, milliseconds or any other time dimensions depending on "heartbeat" provider. (see above).
   Thus, if rules (stated in this section) are followed. The same implementation can run with different speeds and environments.
-  Also by breaking standard Arduino timer functionality, it reduces the potential amount of generated interrupts that may cause non-intended loop wakeup. Which again, helps to reduce power consumption.
 * As outcome of previous statement, it is recommended that event handlers rely on relative time (in ticks) supplied by OFSM (or in worse case on ofsm_get_time());
 * It is recommended that handlers never do a time math on their own, and rely completely on relative delays. As time math should account for timer overflow to work in all cases.
 * Event handlers are not expected to know transition states, and should rely on events to move FSM. (see Handlers API for details);
@@ -59,7 +56,7 @@ TIMEOUT EVENT NOTES
 ====================
 Even though timeout event can be queued to all groups, it doesn't mean that all FSM instances will need to handle it.
 OFSM makes sure that if FSM instance requested timeout that expires in the future (relatively to current timeout event) or it is in infinite sleep,
- that FSM instance handler will NOT be called.
+ then that FSM instance handler will NOT be called.
 
 API NOTE
 ========
@@ -68,8 +65,8 @@ API NOTE
 
 FSM DESCRIPTION/DECLARATION API
 ===============================
-* All event handlers are: typedef void(*FSMHandler)(OFSM *fsm); Example: void MyHandler(OFSMState *fsms){...};
-* Initialization handler (when provided) acts as regular event handler in terms of access to fsm_... function and makes the same impact to FSM state;
+* All event handlers are: typedef void(*FSMHandler)(); Example: void MyHandler(){...};
+* Initialization handler(s) (when provided) act as regular event handler in terms of access to fsm_... function and makes the same impact to FSM state;
 * Example of Transition Table declaration (Ex - event X, Sx - state X, Hxy - state X Event Y handler) (in reality all names are much more meaningful):
 OFSMTransition transitionTable1[][1 + E3] = {
 //timeout,      E1,         E2          E3
@@ -77,7 +74,7 @@ OFSMTransition transitionTable1[][1 + E3] = {
 { { null,S0 }, { H11, S0 }, { null,S0 },{ H11, S1 } },  //S1
 };
 
-* Set of preprocessor macros to help user to declare state machine with list amount of effort. These macros include:
+* Set of preprocessor macros to help to declare state machine with list amount of effort. These macros include:
     OFSM_DECLARE_FSM(fsmId, transitionTable, transitionTableEventCount, initializationHandler, fsmPrivateDataPtr)
     OFSM_DECLARE_GROUP_SIZE_1(eventQueueSize, fsmId0) //setup group of 1 FSM
     ...
@@ -106,7 +103,7 @@ INITIALIZATION AND START API
 * All configuration switches (#define OFSM_CONFIG...)  should appear before "ofsm.h" ("ofsm.decl.h") gets included;
 * call OFSM_SETUP() to initialize hardware, setup interrupts. During initialization phase all registered FSM initialization handlers will be called;
 * call OFSM_LOOP() to start OFSM, this function never returns;
-* When FSM is declared, it gets configured with INFINITE_SLEEP flag set. If wakeup at start time is required the following methods can be used:
+* When FSM is declared, it gets configured with INFINITE_SLEEP flag set. To wakeup FSM at start time the following methods can be used:
   1) When FSM initialization handler is supplied it acts like regular FSM event handler  and can adjust FSM state by means of fsm_... API. For example: it can set transition delay as need.
   2) ofsm_queue... API calls can be used right before OFSM_LOOP() to queue desired events. Including TIMEOUT event.
   NOTE: TIMEOUT event doesn't wake FSM that is in INFINITE_TIMEOUT by default. But it will do it once if event was queued before OFSM_LOOP().
@@ -121,22 +118,24 @@ To queue an event the following API can be used by interrupt handler:
 FSM EVENT HANDLERS API
 ======================
 The following set of functions can be called from any event handler:
-* fsm_prevent_transition(OFSMState *fsm)
+* fsm_prevent_transition()
 
-* fsm_set_transition_delay(OFSMState *fsm, unsigned long delayTicks)
-* fsm_set_inifinite_delay(OFSMState *fsm)
-* fsm_set_next_state(OFSMState *fsm, uint8_t nextStateId)            //TRY TO AVOID IT! overrides default transition state from the handler
+* fsm_set_transition_delay(unsigned long delayTicks)
+* fsm_set_transition_delay_deep_sleep(unsigned long delayTicks)
+* fsm_set_infinite_delay()
+* fsm_set_infinite_delay_deep_sleep()
+* fsm_set_next_state(uint8_t nextStateId)            //TRY TO AVOID IT! overrides default transition state from the handler
 
-* fsm_get_private_data(OFSMState *fsm)
-* fsm_get_private_data_cast(OFSMState *fsm, castType)                // example: MyPrivateStruct_t *data = fsm_get_private_data_cast(fsm, MyPrivateStruct_t*)
-* fsm_get_state(OFSMState *fsm)
-* fsm_get_time_left_before_timeout(OFSMState *fsm)                   
-* fsm_get_fsm_ndex(OFSMState *fsm)                                   //index of fsm in the group
-* fsm_get_group_index(OFSMState *fsm)                                //index of group in OFSM
-* fsm_get_event_code(OFSMState *fsm)
-* fsm_get_event_data(OFSMState *fsm)
+* fsm_get_private_data()
+* fsm_get_private_data_cast(castType)                // example: MyPrivateStruct_t *data = fsm_get_private_data_cast(fsm, MyPrivateStruct_t*)
+* fsm_get_state()
+* fsm_get_time_left_before_timeout()                   
+* fsm_get_fsm_ndex()                                   //index of fsm in the group
+* fsm_get_group_index()                                //index of group in OFSM
+* fsm_get_event_code()
+* fsm_get_event_data()
 
-* fsm_queue_group_event(OFSMState *fsm, uint8_t eventCode, OFSM_CONFIG_EVENT_DATA_TYPE eventData) //queue event into current group
+* fsm_queue_group_event(uint8_t eventCode, OFSM_CONFIG_EVENT_DATA_TYPE eventData) //queue event into current group
 
 * ofsm_queue_global_event(uint8_t eventCode, OFSM_CONFIG_EVENT_DATA_TYPE eventData)
 * ofsm_debug_printf(level,format, ....)	                       //Simulation mode debug print
@@ -152,11 +151,10 @@ OFSM can be "shaped" in many different ways using configuration switches. NOTE: 
 #define OFSM_CONFIG_SUPPORT_EVENT_DATA                          //Default: undefined. When defined OFMS will support event data. 
 #define OFSM_CONFIG_TICK_US                                     //Default: 1000 (1 millisecond). OFSM tick size in microseconds
 
-//By default OFSM uses timer0 to implement heartbeat provider,
-//If this macro is defined, standard heartbeat provided will not be implemented 
-//and (IMPORTANT) Timer0 will not be explicitly mangled with, thus you may have unexpected source of interrupts coming from Arduino time facilities. 
+//By default OFSM piggybacks Arduino timer0 interrupt and micros()/millis() function to call heartbeat,
 //Custom heartbeat provider is expected to call ofsm_hearbeat(unsigned long currentTicktime);
-#define OFSM_CONFIG_CUSTOM_HEARTBEAT_PROVIDER                   //If defined, custom timing function: expected to call: ofsm_hearbeat(unsigned long currentTicktime)
+// See TIME MANAGEMENT AND SLEEP STRATEGY section for further details.
+#define OFSM_CONFIG_CUSTOM_HEARTBEAT_PROVIDER                   //If defined, custom timing function is expected to call: ofsm_hearbeat(unsigned long currentTicktime)
 
 // --------------Simulation Specific Macros -------------------
 #define OFSM_CONFIG_SIMULATION									//Default undefined. Turn SIMULATION mode on. See PC SIMULATION section for additional info
@@ -180,25 +178,46 @@ OFSM can be "shaped" in many different ways using configuration switches. NOTE: 
 //		1 - wakeup explicitly by 'w[akeup]' command and timeout via 'h[eartbeat] command; 
 //		2 - wakeup only by 'w[akeup]'
 //		3 - wakeup only by 'w[akeup]' and process only one event per step
-#define OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE 0     
+#define OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE 3     
 
 CUSTOMIZATION
 =============
 #define OFSM_CONFIG_CUSTOM_ENTER_SLEEP_FUNC _ofsm_enter_sleep                   //typedef: void _ofsm_enter_sleep().
-
 //Is almost never needs to be implemented, as wakeup naturally occurs when interrupt is called. 
 //It is Mostly used for simulation mode where more work needs to be done to wakeup the main loop. 
-#define OFSM_CONFIG_CUSTOM_WAKEUP_FUNC _ofsm_wakeup                             //typedef: void _ofsm_wakeup().
+#define OFSM_CONFIG_CUSTOM_WAKEUP_FUNC _ofsm_wakeup												//typedef: void _ofsm_wakeup().
+#define OFSM_CONFIG_CUSTOM_IDLE_SLEEP_DISABLE_PERIPHERAL_FUNC _ofsm_idle_sleep_disable_peripheral //typedef: void _ofsm_idle_sleep_disable_peripheral()
+#define OFSM_CONFIG_CUSTOM_IDLE_SLEEP_ENABLE_PERIPHERAL_FUNC _ofsm_idle_sleep_enable_peripheral //typedef: void _ofsm_idle_sleep_disable_peripheral()
+#define OFSM_CONFIG_CUSTOM_DEEP_SLEEP_DISABLE_PERIPHERAL_FUNC _ofsm_deep_sleep_disable_peripheral //typedef: void _ofsm_deep_sleep_disable_peripheral()
+#define OFSM_CONFIG_CUSTOM_DEEP_SLEEP_ENABLE_PERIPHERAL_FUNC _ofsm_deep_sleep_enable_peripheral //typedef: void _ofsm_deep_sleep_disable_peripheral()
+#define OFSM_CONFIG_CUSTOM_WATCHDOG_INTERRUPT_HANDLER_FUNC _ofsm_wdt_vector //typedef: void _ofsm_wdt_vector()
 
 // --------------Simulation Specific Macros -------------------
 #define OFSM_CONFIG_CUSTOM_SIMULATION_CUSTOM_STATUS_REPORT_PRINTER_FUNC _ofsm_simulation_status_report_printer // typedef: void custom_func(OFSMSimulationStatusReport *r)
 #define OFSM_CONFIG_CUSTOM_SIMULATION_COMMAND_HOOK_FUNC						    //Default: undefined; typedef: bool func(std::deque<std::string> &tokens); see PC SIMULATION EVENT GENERATOR for details.
 #define OFSM_CONFIG_CUSTOM_SIMULATION_EVENT_GENERATOR_FUNC _ofsm_simulation_event_generator //typedef: int _ofsm_simulation_event_generator(const char* fileName). Function: expected to call: ofsm_hearbeat(unsigned long currentTicktime)
 
+TIME MANAGEMENT AND SLEEP STRATEGIES
+====================================
+Once all FSMs requested delay, OFSM calculates earliest wakeup time and goes to sleep until specified wakeup time is reached.
+There are two sleep modes: idle sleep and deep sleep (using watch dog timer)
+Deep sleep is never used unless all registered FSMs requested  the "deep sleep" (see fsm_....deep_sleep()). 
+If there where no external or pin change interrupts, then Deep Sleep interrupt handler will attempt to sync Arduino time-keeping variables to be reflect time spent in the "deep sleep".
+	which will also cause default heartbeat provider to advance.
+However, if "deep sleep" was interrupted by external or pin change interrupt, there is no way to calculate time passed since beginning of the sleep and interrupt 
+	thus Arduino clock variables will not be updated and timing may become unreliable.
+Deep Sleep will not trigger for delays that are less then 16 milliseconds regardless of the FSMs requests.
+For long delays that do not fit into possible Deep sleep intervals, the rest of delay will be filled with "Idle Sleep".
+For Example:
+	wakeup time is 100ms from now: first watchdog timer will be set for 64ms, then for 32ms and the rest ~4ms will be using idle sleep mode.
+NOTE: When implementing custom heartbeat provider or not using Arduino environment, consider to define OFSM_CONFIG_CUSTOM_WATCHDOG_INTERRUPT_HANDLER_FUNC along with 
+	implementation of custom heartbeat functionality.
+
+
 PC SIMULATION
 =============
-Ultimate goal is to be able to run properly formatted sketch in simulation mode on any PC using GCC or other C+11 compatible compiler (including VS012) without any change.
-To do that skatch code should follow the following rules:
+Ultimate goal is to be able to run properly formatted project in simulation mode on any PC using GCC or other C+11 compatible compiler (including VS012) without any change.
+To do that,  the sketch code should follow the following rules:
 * OFSM_CONFIG_SIMULATION definition should appear at the very top of the sketch file before any other includes
 * All MCU specific code should be surrounded by
     #ifndef OFSM_CONFIG_SIMULATION
@@ -210,18 +229,17 @@ To do that skatch code should follow the following rules:
     #endif
 * All simulation specific code should be similarly surrounded with #ifdef OFSM_CONFIG_SIMULATION.... (fsm_debug_printf() can be left as is, it will be automatically optimized out by compiler)
     Default simulation implementation is based on C++ threads. First thread is running state machine and Second is running heartbeat provider with resolution of  OFSM_CONFIG_SIMULATION_TICK_MS.
-    Main program's thread is used as event generator. Default implementation reads input in infinite loop and queues corresponding event to OFSM. see PC SIMULATION EVENT GENERATOR section for details.
+    Main program's thread is used as event generator. Default implementation reads input in infinite loop and queues events into OFSM. see PC SIMULATION EVENT GENERATOR section for details.
     IMPORTANT NOTE: For simulation to work, it re-defines almost all OFSM_CONFIG_CUSTOM.... macros.
-    Therefore, if user does customization for MCU purposes, all declarations should be surrounded by #ifndef OFSM_CONFIG_SIMULATION .... #endif construct.
+    Therefore, if making customization for MCU purposes, all declarations should be surrounded by #ifndef OFSM_CONFIG_SIMULATION .... #endif construct.
     At the same time one can completely override all parts of simulation as well.
 
 PC SIMULATION EVENT GENERATOR
 =============================
-Event generator is implemented as infinite loop which reads event information for the input and queues it in OFSM.
+Event generator is implemented as infinite loop which reads event information from the input and queues it in OFSM.
 Simulation command format: <command>,<parameters>; Value surrounded by '[]' denotes optional part(s).
 Any command can optionally be followed by '=' <assert compare string>. 
-    When specified, event generator will compare <assert compare string> and last output (usually from 'report' or custom command) and issue an assert if there is a mismatch.
-    This way Unit Tests can be created to ensure proper/expected functionality after the changes.
+    When specified, event generator will compare <assert compare string> and last output (usually from 'status' or custom command) and issue an assert if there is a mismatch.
 '//' designates comment. Event generator will ignore any text appearing after '//'.
 The following are commands supported by event generator out of box;
 * e[exit] - exit simulation;
@@ -234,30 +252,30 @@ The following are commands supported by event generator out of box;
     -Examples:
         1) queue,g,0,0,1	//queue global event code 0 event data 0 into all groups;
         2) q,1				//queue event code 1 event data 0 into group 0;
-        3) q,f,2,1,1		//queue event code 2 event data 1 into group 1, force new event flag is set.
+        3) q,f,2,1,1		//queue event code 2 event data 1 into group 1, force new event.
 * h[eartbeat][,<current time (in ticks)>] // calls OFSM heartbeat with specified time; see also PC SIMULATION SCRIPT MODE;
     -Examples:
-        1) heartbeat,1000	//ping OFSM and set current OFSM time to 1000 ticks
+        1) heartbeat,1000	//set current OFSM time to 1000 ticks
         2) h,1000			//same as above
 * s[tatus][,<group index>[,<fsm index>] // prints out status report about current state of specified FSM, if not specified <group index> and <fsm index> assumed to be 0
     - see PC SIMULATION REPORT FORMAT for details about produced output.
 
 * p[rint][,<string>]		// prints out <string>
 * w[akup]					// explicitly wakeup OFSM; ignored unless OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE > 0
-* r[eset]                   // reset and restart OFSM;
+* r[eset]                   // reset and restart OFSM; mostly used in script mode for creating of test case.
 
 
 You can define OFSM_CONFIG_CUSTOM_SIMULATION_COMMAND_HOOK_FUNC that will be called before command gets processed by the event generator.
 This way you can extend standard set of commands or change their default behavior.
-By returning true hook signals event generator that command was processed. Otherwise, event generator will continue processing the command as usual.
+By returning true, the hook signals event generator that command was processed. Otherwise, event generator will continue processing the command as usual.
 Custom hook may call: ofsm_simulation_set_assert_compare_string(const char* assertCompareString) to allow support for test asserts.
 
 PC SIMULATION SCRIPT MODE
 =========================
 * By default (OFSM_CONFIG_SIMULATION_SCRIPT_MODE is undefined). simulation process runs three threads:
-        1) FSM thread: where FSM is running it's loop
-        2) Timer thread: this thread is running timer which periodically calls heartbeat to supply time into OFSM and wakes up OFSM in case of Timeout.
-        3) Main thread: used by event generator.
+        1) FSM thread: where FSM is running it's loop (in MCU world it corresponds to loop())
+        2) Timer thread: this thread is running timer which periodically calls heartbeat to supply time into OFSM and wakes up OFSM in case of Timeout. (in MCU world it corresponds to timer interrupt handler or other time supplying mechanism)
+        3) Main thread: used by event generator. (in MCU world: external interrupts, such as button click ....)
     Such a mode allows dynamic/interactive testing of the OFSM.
 * Script Mode can be used for thorough state machine logic testing. In this mode everything runs in single thread;
     Heartbeat is expected to be explicitly called from the script (see heartbeat command), that allows to setup precise test scenarios with predetermined outcome
@@ -280,10 +298,10 @@ LIMITATIONS
 
 /*NOTE: In case of multi-file projects, ofsm.h should not be included directly into any c/cpp file. 
 Instead project specific .h file fill contain OFSM configuration section and include of the ofsm.decl.h right after that.
-And ofsm.impl.h will be include just once into one of c/cpp project files after project specific .h file.
+And ofsm.impl.h will be include just once into one of the c/cpp project files after project specific .h file.
 Example:
     myproject.h:
-        #ifdef TEST
+        #ifdef UTEST
         / *configure script (unit test) mode simulation* /
         #   define OFSM_CONFIG_SIMULATION                            / * turn on simulation mode * /
         #   define OFSM_CONFIG_SIMULATION_SCRIPT_MODE                / * run main loop synchronously * /
@@ -309,7 +327,7 @@ Example:
         #include "myproject.h"
         #include "ofsm.impl.h"
         ...
-    filex.c:
+    fileX.c:
         #include "myproject.h"
         <... your code goes here ...>
 */

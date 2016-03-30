@@ -1,3 +1,4 @@
+#define UTEST
 #ifdef UTEST
 /*configure script (unit test) mode simulation*/
 #   define OFSM_CONFIG_SIMULATION                            /* turn on simulation mode */
@@ -30,9 +31,9 @@ enum FsmId	{DefaultFsm = 0};
 enum FsmGrpId {MainGroup = 0};
 
 /* Handlers declaration */
-void DummyHandler(OFSMState *fsms);
-void PreventTransitionHandler(OFSMState *fsms);
-void InifiniteDelayHandler(OFSMState *fsms);
+void DummyHandler();
+void PreventTransitionHandler();
+void InifiniteDelayHandler();
 
 /* OFSM configuration */
 OFSMTransition transitionTable[][1 + InfiniteDelay] = {
@@ -57,14 +58,14 @@ void loop() {
 
 
 /* Handler implementation */
-void DummyHandler(OFSMState *fsms) {
+void DummyHandler() {
 }
 
-void PreventTransitionHandler(OFSMState *fsms) {
-    fsm_prevent_transition(fsms);
+void PreventTransitionHandler() {
+    fsm_prevent_transition();
 }
 
-void InifiniteDelayHandler(OFSMState *fsms) {
-    fsm_set_inifinite_delay(fsms);
+void InifiniteDelayHandler() {
+    fsm_set_infinite_delay();
 }
 
