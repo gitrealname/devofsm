@@ -203,27 +203,6 @@ static inline void _ofsm_group_process_pending_event(OFSMGroup *group, uint8_t g
 
 void _ofsm_setup() {
 
-    /*In simulation mode, we need to allow to reset OFSM to initial state, so that intermediate test case can start clean.*/
-#ifdef OFSM_CONFIG_SIMULATION
-    uint8_t i, k;
-    OFSMGroup *group;
-    OFSM *fsm;
-    /*reset GLOBALS*/
-    _ofsmFlags = (_OFSM_FLAG_INFINITE_SLEEP |_OFSM_FLAG_OFSM_INTERRUPT_INFINITE_SLEEP_ON_TIMEOUT);
-    _ofsmTime = 0;
-    /*reset groups and FSMs*/
-    for (i = 0; i < _ofsmGroupCount; i++) {
-        group = (_ofsmGroups)[i];
-        group->flags = 0;
-        group->currentEventIndex = group->nextEventIndex = 0;
-        for (k = 0; k < group->groupSize; k++) {
-            fsm = (group->fsms)[k];
-            fsm->flags = _OFSM_FLAG_INFINITE_SLEEP;
-            fsm->currentState = 0;
-        }
-    }
-#endif /*OFSM_CONFIG_SIMULATION*/
-
 #ifdef OFSM_CONFIG_SUPPORT_INITIALIZATION_HANDLER
     //configure FSMs, call all initialization handlers
 #   ifndef OFSM_CONFIG_SIMULATION
@@ -262,7 +241,7 @@ void _ofsm_start() {
     _OFSM_TIME_DATA_TYPE currentTime;
     uint8_t timeFlags;
 #ifdef OFSM_CONFIG_SIMULATION
-    bool doReturn = false;
+	bool doReturn = false;
 #else
 #	ifndef OFSM_CONFIG_CUSTOM_HEARTBEAT_PROVIDER
 	_ofsm_heartbeat_proxy_set_time();
@@ -996,6 +975,26 @@ int main(int argc, char* argv[])
 
         if (retCode < 0) {
             _ofsm_debug_printf(3, "Reseting...\n");
+
+			/*In simulation mode, we need to allow to reset OFSM to initial state, so that intermediate test case can start clean.*/
+			uint8_t i, k;
+			OFSMGroup *group;
+			OFSM *fsm;
+			/*reset GLOBALS*/
+			_ofsmFlags = (_OFSM_FLAG_INFINITE_SLEEP | _OFSM_FLAG_OFSM_INTERRUPT_INFINITE_SLEEP_ON_TIMEOUT);
+			_ofsmTime = 0;
+			_ofsmWakeupTime = 0;
+			/*reset groups and FSMs*/
+			for (i = 0; i < _ofsmGroupCount; i++) {
+				group = (_ofsmGroups)[i];
+				group->flags = 0;
+				group->currentEventIndex = group->nextEventIndex = 0;
+				for (k = 0; k < group->groupSize; k++) {
+					fsm = (group->fsms)[k];
+					fsm->flags = _OFSM_FLAG_INFINITE_SLEEP;
+					fsm->currentState = 0;
+				}
+			}
         }
 
     } while (retCode < 0);

@@ -1,5 +1,5 @@
 //OFSM unit tests.
-//Compiler Command line: 
+//Compiler Command line: g++ -Wall -std=c++11 -fexceptions -std=c++11 -DUTEST -I../src -g  -o ofsmTest ofsmTest.cpp
 //Event queue size = 3;
 //States: 
 //  0 - S0

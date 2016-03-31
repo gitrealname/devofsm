@@ -71,17 +71,17 @@ FSM DESCRIPTION/DECLARATION API
 OFSMTransition transitionTable1[][1 + E3] = {
 //timeout,      E1,         E2          E3
 { { H00, S0 }, { H01, S1 }, { H02, S0 },{ H03, S1 } },  //S0
-{ { null,S0 }, { H11, S0 }, { null,S0 },{ H11, S1 } },  //S1
+{ { 0   ,S0 }, { H11, S0 },  { 0  ,S0 },{ H11, S1 } },  //S1
 };
 
 * Set of preprocessor macros to help to declare state machine with list amount of effort. These macros include:
     OFSM_DECLARE_FSM(fsmId, transitionTable, transitionTableEventCount, initializationHandler, fsmPrivateDataPtr)
-    OFSM_DECLARE_GROUP_SIZE_1(eventQueueSize, fsmId0) //setup group of 1 FSM
+    OFSM_DECLARE_GROUP_1(eventQueueSize, fsmId0) //setup group of 1 FSM
     ...
-    OFSM_DECLARE_GROUP_SIZE_5(eventQueueSize, fsmId0, ....,fsmId4) //setup group of 5 FSMs
+    OFSM_DECLARE_GROUP_5(eventQueueSize, fsmId0, ....,fsmId4) //setup group of 5 FSMs
     OFSM_DECLARE_1(grpId0) //OFSM with 1 group
     ...
-    OFSM_DECLARE_5(grpId0,....grpId4) //OFSM with 10 groups
+    OFSM_DECLARE_5(grpId0,....grpId4) //OFSM with 5 groups
     OFSM_DECLARE_BASIC(transitionTable, transitionTableEventCount, initializationHandler, fsmPrivateDataPtr) //single FSM single Group declaration
 
 IMPORTANT:
@@ -262,8 +262,7 @@ The following are commands supported by event generator out of box;
 
 * p[rint][,<string>]		// prints out <string>
 * w[akup]					// explicitly wakeup OFSM; ignored unless OFSM_CONFIG_SIMULATION_SCRIPT_MODE_WAKEUP_TYPE > 0
-* r[eset]                   // reset and restart OFSM; mostly used in script mode for creating of test case.
-
+* r[eset]					// reset and restart OFSM; mostly used in script mode for creating of test case.
 
 You can define OFSM_CONFIG_CUSTOM_SIMULATION_COMMAND_HOOK_FUNC that will be called before command gets processed by the event generator.
 This way you can extend standard set of commands or change their default behavior.
