@@ -46,6 +46,12 @@ static inline void _ofsm_fsm_process_event(OFSM *fsm, uint8_t groupIndex, uint8_
         return;
     }
 
+    if(e->eventCode == fsm->skipNextEventCode) {
+        fsm->skipNextEventCode = (uint8_t)-1; /*reset skip event*/
+        _ofsm_debug_printf(1,  "F(%i)G(%i): eventCode %i is set to be skipped for this FSM instance.\n", fsmIndex, groupIndex, e->eventCode);
+        return;
+    }
+
     ofsm_get_time(currentTime, timeFlags);
 
     //check if wake time has been reached, wake up immediately if not timeout event, ignore non-handled   events.
@@ -53,9 +59,8 @@ static inline void _ofsm_fsm_process_event(OFSM *fsm, uint8_t groupIndex, uint8_
     wakeupTimeGTcurrentTime = _OFSM_TIME_A_GT_B(fsm->wakeupTime, (fsm->flags & _OFSM_FLAG_SCHEDULED_TIME_OVERFLOW), currentTime, (timeFlags & _OFSM_FLAG_OFSM_TIMER_OVERFLOW));
     if (!t->eventHandler || (0 == e->eventCode && (((fsm->flags & _OFSM_FLAG_INFINITE_SLEEP) && !(_ofsmFlags & _OFSM_FLAG_OFSM_INTERRUPT_INFINITE_SLEEP_ON_TIMEOUT)) || wakeupTimeGTcurrentTime))) {
         if (!t->eventHandler) {
-            fsm->flags |= _OFSM_FLAG_INFINITE_SLEEP;
 #ifdef OFSM_CONFIG_SIMULATION
-            _ofsm_debug_printf(4,  "F(%i)G(%i): Handler is not specified, state %i event code %i. Assuming infinite sleep.\n", fsmIndex, groupIndex, fsm->currentState, e->eventCode);
+            _ofsm_debug_printf(4,  "F(%i)G(%i): Handler is not specified, state %i event code %i. Event is ignored.\n", fsmIndex, groupIndex, fsm->currentState, e->eventCode);
         }
         else if ((fsm->flags & _OFSM_FLAG_INFINITE_SLEEP) && !(_ofsmFlags & _OFSM_FLAG_OFSM_INTERRUPT_INFINITE_SLEEP_ON_TIMEOUT)) {
             _ofsm_debug_printf(4,  "F(%i)G(%i): State Machine is in infinite sleep.\n", fsmIndex, groupIndex);
@@ -73,34 +78,36 @@ static inline void _ofsm_fsm_process_event(OFSM *fsm, uint8_t groupIndex, uint8_
     _ofsm_debug_printf(2,  "F(%i)G(%i): State: %i. Processing eventCode %i...\n", fsmIndex, groupIndex, fsm->currentState, e->eventCode);
 #endif
 
-    //call handler
     oldFlags = fsm->flags;
     oldWakeupTime = fsm->wakeupTime;
     fsm->wakeupTime = 0;
     fsm->flags &= ~_OFSM_FLAG_FSM_FLAG_ALL; //clear flags
 
-    fsmState.fsm = fsm;
-    fsmState.e = e;
-    fsmState.groupIndex = groupIndex;
-    fsmState.fsmIndex = fsmIndex;
-    fsmState.timeLeftBeforeTimeout = 0;
+    if(t->eventHandler != OFSM_NOP_HANDLER) {
+        //call handler
+        fsmState.fsm = fsm;
+        fsmState.e = e;
+        fsmState.groupIndex = groupIndex;
+        fsmState.fsmIndex = fsmIndex;
+        fsmState.timeLeftBeforeTimeout = 0;
 
-    if(oldFlags & _OFSM_FLAG_INFINITE_SLEEP) {
-        fsmState.timeLeftBeforeTimeout = 0xFFFFFFFF;
-    } else {
-        if(wakeupTimeGTcurrentTime) {
-            fsmState.timeLeftBeforeTimeout = oldWakeupTime - currentTime; /* time overflow will be accounted for*/
+        if(oldFlags & _OFSM_FLAG_INFINITE_SLEEP) {
+            fsmState.timeLeftBeforeTimeout = 0xFFFFFFFF;
+        } else {
+            if(wakeupTimeGTcurrentTime) {
+                fsmState.timeLeftBeforeTimeout = oldWakeupTime - currentTime; /* time overflow will be accounted for*/
+            }
         }
-    }
-	_ofsmCurrentFsmState = &fsmState;
-    (t->eventHandler)();
+        _ofsmCurrentFsmState = &fsmState;
+        (t->eventHandler)();
 
-    //check if error was reported, restore original FSM state
-    if (fsm->flags & _OFSM_FLAG_FSM_PREVENT_TRANSITION) {
-        fsm->flags = oldFlags | _OFSM_FLAG_FSM_PREVENT_TRANSITION;
-        fsm->wakeupTime = oldWakeupTime;
-        _ofsm_debug_printf(3,  "F(%i)G(%i): Handler requested no transition. FSM state was restored.\n", fsmIndex, groupIndex);
-        return;
+        //check if transition prevention was requested, restore original FSM state
+        if (fsm->flags & _OFSM_FLAG_FSM_PREVENT_TRANSITION) {
+            fsm->flags = oldFlags | _OFSM_FLAG_FSM_PREVENT_TRANSITION;
+            fsm->wakeupTime = oldWakeupTime;
+            _ofsm_debug_printf(3,  "F(%i)G(%i): Handler requested no transition. FSM state was restored.\n", fsmIndex, groupIndex);
+            return;
+        }
     }
 
     //make a transition
@@ -992,7 +999,8 @@ int main(int argc, char* argv[])
 				for (k = 0; k < group->groupSize; k++) {
 					fsm = (group->fsms)[k];
 					fsm->flags = _OFSM_FLAG_INFINITE_SLEEP;
-					fsm->currentState = 0;
+					fsm->currentState = fsm->simulationInitialState;
+					fsm->skipNextEventCode = (uint8_t)-1;
 				}
 			}
         }
@@ -1078,7 +1086,7 @@ uint8_t idleSleepFlag = 0;
 		_ofsm_heartbeat_ms_us_proxy();
 #endif
     }
-    
+
     /* enable interrupts; disable sleep */
 	sei();
 	sleep_disable();
@@ -1105,11 +1113,11 @@ static inline void _ofsm_heartbeat_ms_us_proxy() {
 
 		/* timing debug helper */
 		/*
-		Serial.print(" _ofsmCurrentProxyTimeUs: "); 
+		Serial.print(" _ofsmCurrentProxyTimeUs: ");
 		Serial.print(_ofsmCurrentProxyTimeUs);
-		Serial.println(); 
-		delay(50); 
-		cli(); 
+		Serial.println();
+		delay(50);
+		cli();
 		*/
 	}
 }
@@ -1119,7 +1127,7 @@ static inline void _ofsm_enter_idle_sleep(unsigned long sleepPeriodUs) {
 
 	/* timing debug helper */
 	/*
-	Serial.print("ISUs: "); 
+	Serial.print("ISUs: ");
 	Serial.print(sleepPeriodUs);
 	Serial.println();
 	delay(50);
@@ -1152,7 +1160,7 @@ extern volatile unsigned long timer0_overflow_count; /*Arduino timer0 overflow c
 
 static inline void _ofsm_wdt_vector() {
     /*try to update Arduino timer variables, to keep time relatively correct.
-    if deep sleep was interrupted by external source, 
+    if deep sleep was interrupted by external source,
     then time will not be updated as we don't know how big of a delay was between getting to sleep and external interrupt
     */
 	if(_ofsmFlags & _OFSM_FLAG_OFSM_IN_DEEP_SLEEP) {
@@ -1170,7 +1178,7 @@ ISR(WDT_vect) {
 /*chip specific MAX watchdog sleep period*/
 #ifndef WDP3
 #	define _OFSM_MAX_SLEEP_MASK  0B111 /*2 sec*/
-#else 
+#else
 #   define _OFSM_MAX_SLEEP_MASK 0B1001 /*8 sec*/
 #endif
 
@@ -1183,7 +1191,7 @@ static inline void _ofsm_enter_deep_sleep(unsigned long sleepPeriodMs) {
 	Serial.print(sleepPeriodMs);
 	Serial.println();
 	delay(50);
-	cli(); 
+	cli();
 	*/
 
 	if(sleepPeriodMs >= 8192L) {
@@ -1205,7 +1213,7 @@ static inline void _ofsm_enter_deep_sleep(unsigned long sleepPeriodMs) {
 	wdt_reset();  /* prepare */
 	WDTCSR |= ((1 << WDCE) | (1 << WDE)); /*enable change; timing sequence goes from here*/
 	WDTCSR = ((1 << WDIE) | (wdtMask));	  /* set interrupt mode, set prescaler bits (2sec) */
-	
+
 	/* turn off brown-out detector*/
 	sleep_bod_disable();
 
