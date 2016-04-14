@@ -10,13 +10,14 @@
 //  2 - PreventTransition
 //  3 - InfiniteDelay
 //----------------------------------------------
-
+p
 p,--- Initial state: queues are empty, sitting in state 0 in infinite sleep ('I' flag set on both OFSM and FSM).
 reset //make sure we start fresh
 status = -O[Id]-G(0)[.,000]-F(0)[Ipo]-S(0)-TW[0000000000.,O:0000000000.,F:0000000000.]  
 p
 p,--- Same event replaces the same one in the queue by default.
 reset
+status = -O[Id]-G(0)[.,000]-F(0)[Ipo]-S(0)-TW[0000000000.,O:0000000000.,F:0000000000.]  
 queue,1		//first event
 queue,1		//the same event, group event count is expected to be 1
 status = -O[Id]-G(0)[.,001]-F(0)[Ipo]-S(0)-TW[0000000000.,O:0000000000.,F:0000000000.]
