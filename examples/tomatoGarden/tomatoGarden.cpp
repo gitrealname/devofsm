@@ -12,10 +12,15 @@ Note:
 #include "tomatoGarden.h"
 #include <ofsm.impl.h>
 
+#define DutyCyclePeriodTicks 3*60L  /* full duty cycle 3min (180 ticks when tick == 1 sec) */
+#define MaxPumpingPctOfDutyCycle 33 /* 33% ~ 1 min if DC = 3min */
+#define MinPumpingPctOfDutyCycle 3  /* 3%  ~ 6 secs if DC = 3min */
+#define PumpingPctRange (MaxPumpingPctOfDutyCycle - MinPumpingPctOfDutyCycle)
+
 #if OFSM_MCU_BLOCK
 static long lastVccMv; /*last measured Vcc voltage in millivolts*/
-#   define AnalogReadVoltageScale 1097400L
-#   define analogReadMv(pin) (lastVccMv * analogRead(pin) / 1024)
+#   define AnalogReadVoltageScale 1121508L
+#   define analogReadMv(pin) (lastVccMv * analogRead(pin) / 1023)
 
 static long readVccMv(long avarageCount = 1) {
   // Read 1.1V reference against AVcc
@@ -90,11 +95,6 @@ void loop() {
     OFSM_LOOP();
 }
 
-#define DutyCyclePeriodTicks 3*60L  /* full duty cycle 3min (180 ticks when tick == 1 sec) */
-#define MaxPumpingPctOfDutyCycle 33 /* 33% ~ 1 min if DC = 3min */
-#define MinPumpingPctOfDutyCycle 3  /* 3%  ~ 6 secs if DC = 3min */
-#define PumpingPctRange (MaxPumpingPctOfDutyCycle - MinPumpingPctOfDutyCycle)
-
 static uint8_t PumpingPctOfDutyCycle = 50; /* actual measured pumping percent of duty cycle */
 
 /* FSM Handlers */
@@ -113,7 +113,7 @@ ofsm_debug_printf(1, "Pumping %% of DC = %i\n", PumpingPctOfDutyCycle);
 fsm_queue_group_event(false, PUMPIMP_RATE_CALCULATED, PumpingPctOfDutyCycle);
 #if OFSM_MCU_BLOCK
     /*turn off relay to prevent voltage "sagging"*/
-    digitalWrite(PumpRelayPin, LOW);
+    digitalWrite(PumpRelayPin, HIGH);
     /*measure Vcc (averaging over 3 measures)  */
     long vccMv = readVccMv(3);
     /*read voltage divider*/
@@ -129,7 +129,7 @@ void OnWaiting() {
     ofsm_debug_printf(1, "Pump OFF for = %lu ticks\n", waitSleepPeriod);
     fsm_set_transition_delay_deep_sleep(waitSleepPeriod);
 #if OFSM_MCU_BLOCK
-    digitalWrite(PumpRelayPin, LOW);
+    digitalWrite(PumpRelayPin, HIGH);
     Serial.print("Pump OFF for = "); Serial.println(waitSleepPeriod);
     delay(50); /*let serial to flush*/
 #endif /* OFSM_MCU_BLOCK */
@@ -140,7 +140,7 @@ void OnPumping() {
     ofsm_debug_printf(1, "Pump ON for = %lu ticks\n", pumpingSleepPeriod);
     fsm_set_transition_delay_deep_sleep(pumpingSleepPeriod);
 #if OFSM_MCU_BLOCK
-    digitalWrite(PumpRelayPin, HIGH);
+    digitalWrite(PumpRelayPin, LOW);
     Serial.print("Pump ON for = "); Serial.println(pumpingSleepPeriod);
     delay(50); /*let serial to flush*/
 #endif /* OFSM_MCU_BLOCK */
