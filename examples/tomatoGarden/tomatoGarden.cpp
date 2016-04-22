@@ -86,8 +86,19 @@ void setup() {
     /* set up Serial library at 9600 bps */
     Serial.begin(9600);
     pinMode(PumpRelayPin, OUTPUT);
+    pinMode(13, OUTPUT);
 #endif
     OFSM_SETUP();
+
+    digitalWrite(PumpRelayPin, HIGH);
+
+    //blink that it is operational
+    uint8_t on = 1;
+    for(int i = 0; i < 6; i++) {
+      digitalWrite(13, on);
+      on ^= 1;
+      delay(500);
+    }
 }
 
 void loop() {
