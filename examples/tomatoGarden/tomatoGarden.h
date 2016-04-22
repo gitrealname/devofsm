@@ -15,10 +15,10 @@
 #   ifdef F_CPU
         /*configure MCU mode*/
 #       define OFSM_CONFIG_DEFAULT_STATE_TRANSITION_DELAY 0     /* make 0 ticks as default delay between transitions */
-#       define OFSM_CONFIG_TICK_US 1000000L                     /* MCU tick size == 1sec */
+#       define OFSM_CONFIG_TICK_US 1000L                        /* MCU tick size == 1 millisecond */
 #   else
         /*configure interactive simulation*/
-#      define OFSM_CONFIG_SIMULATION_TICK_MS 100                 /* make 1 ticks == 100 millisecond */
+#       define OFSM_CONFIG_SIMULATION_TICK_MS 1                  /* make 1 ticks == 1 millisecond */
 #       define OFSM_CONFIG_SIMULATION                            /* turn on simulation mode */
 #       define OFSM_CONFIG_SIMULATION_DEBUG_LEVEL 4              /* turn on sketch debug print up to level 4 */
 #       define OFSM_CONFIG_SIMULATION_DEBUG_LEVEL_OFSM 0         /* turn on ofsm debug print up to level 4*/
@@ -28,7 +28,8 @@
 #   endif /*F_CPU*/
 #endif
 
-#define EVENT_QUEUE_SIZE 3 /*event queue size*/
+#define MIN(a, b) ( (a < b) ? a : b )
+#define MAX(a, b) ( (a > b) ? a : b )
 
 #include <ofsm.decl.h>
 

@@ -2,8 +2,6 @@
 Problem statement:
 
 Wiring:
-    1. [Pin12] --> [Diode+]   [Diode-] --> [R(220 Ohm)] --> GND
-    2. [Pin2]  --> [ButtonTerminalA]     [ButtonTerminalB] --> GND
 Interactive Simulation:
     1. Build command: g++ -Wall -std=c++11 -fexceptions -std=c++11 -I../../src -g  -o tomatoGarden -x c++ tomatoGarden.ino
 Note:
@@ -12,11 +10,31 @@ Note:
 #include "tomatoGarden.h"
 #include <ofsm.impl.h>
 
-#define DutyCyclePeriodTicks 3*60L  /* full duty cycle 3min (180 ticks when tick == 1 sec) */
+/*-------------------------------------------
+    Configuration
+---------------------------------------------*/
+#ifdef OFSM_CONFIG_SIMULATION
+#   define DutyCyclePeriodTicks 3*60*100L   /* full duty cycle 18sec (18000 ticks when tick == 1 msc) */
+#   define InformerBlinkMaxDelay 300L       /* maximum number of ticks for informer diode to remain in on/off state before switching to opposite */
+#   define InformerBlinkMinDelay 50L        /* minimum number of ticks for informer diode to remain in on/off state before switching to opposite */
+#else
+#   define DutyCyclePeriodTicks 3*60*1000L  /* full duty cycle 3min (180000 ticks when tick == 1 msc) */
+#   define InformerBlinkMaxDelay 3000L      /* maximum number of ticks for informer diode to remain in on/off state before switching to opposite */
+#   define InformerBlinkMinDelay 50L        /* minimum number of ticks for informer diode to remain in on/off state before switching to opposite */
+#endif // OFSM_CONFIG_SIMULATION
+
 #define MaxPumpingPctOfDutyCycle 33 /* 33% ~ 1 min if DC = 3min */
 #define MinPumpingPctOfDutyCycle 3  /* 3%  ~ 6 secs if DC = 3min */
 #define PumpingPctRange (MaxPumpingPctOfDutyCycle - MinPumpingPctOfDutyCycle)
 
+#define PumpRelayPin 5 /*D5*/
+#define InformerPin 13
+#define VoltageDividerPin A0
+
+
+/*-------------------------------------------
+    Implementation
+---------------------------------------------*/
 #if OFSM_MCU_BLOCK
 static long lastVccMv; /*last measured Vcc voltage in millivolts*/
 #   define AnalogReadVoltageScale 1121508L
@@ -53,52 +71,56 @@ static long readVccMv(long avarageCount = 1) {
 #endif /*OFSM_MCU_BLOCK*/
 
 /*define events and states*/
-enum States {Waiting = 0, Pumping};
-enum Events {TIMEOUT = 0, PUMPIMP_RATE_CALCULATED, SIMULATION_PUMPING_PERCENT};
+enum PumpStates {Waiting = 0, Pumping};
+enum PumpEvents {TIMEOUT = 0, PUMPIMP_RATE_CALCULATED, SIMULATION_PUMPING_PERCENT};
+
+enum InformerStates {Waiting_Informer = 0};
+enum InformerEvents {TIMEOUT_INFORMER = 0};
 
 /* Handlers declaration */
-void OnTimeout();
-void OnSimulation();
-void OnWaiting();
-void OnPumping();
+void OnPumpTimeout();
+void OnPumpSimulation();
+void OnPumpWaiting();
+void OnPumpPumping();
+
+void OnInformerTimeout();
 
 /* transition table */
-OFSMTransition trasitionTable[][1 + SIMULATION_PUMPING_PERCENT] = {
+OFSMTransition pumpTrasitionTable[][1 + SIMULATION_PUMPING_PERCENT] = {
     /* TIMEOUT                   PUMPIMP_RATE_CALCULATED    SIMULATION_PUMPING_PERCENT*/
-    { { OnTimeout,    Waiting }, { OnWaiting,   Pumping },  { OnSimulation,    Waiting },  },    /*Waiting*/
-    { { OnTimeout,    Pumping }, { OnPumping,   Waiting },  { OnSimulation,    Pumping },  }     /*Pumping*/
+    { { OnPumpTimeout,    Waiting }, { OnPumpWaiting,   Pumping },  { OnPumpSimulation,    Waiting },  },    /*Waiting*/
+    { { OnPumpTimeout,    Pumping }, { OnPumpPumping,   Waiting },  { OnPumpSimulation,    Pumping },  }     /*Pumping*/
+};
+
+OFSMTransition informerTrasitionTable[][1 + TIMEOUT_INFORMER] = {
+    /* TIMEOUT */
+    { { OnInformerTimeout,    Waiting_Informer } }    /*Waiting*/
 };
 
 /*other defines*/
-enum FsmId  {PumpFsm = 0};
-enum FsmGrpId {Default = 0};
+enum FsmId  {PumpFsm = 0, InformerFsm};
+enum FsmGrpId {PumpGrp = 0, InformerGrp};
 
-OFSM_DECLARE_FSM(PumpFsm, trasitionTable, 1 + SIMULATION_PUMPING_PERCENT, NULL, NULL, Waiting);
-OFSM_DECLARE_GROUP_1(Default, EVENT_QUEUE_SIZE, PumpFsm);
-OFSM_DECLARE_1(Default);
+OFSM_DECLARE_FSM(PumpFsm, pumpTrasitionTable, 1 + SIMULATION_PUMPING_PERCENT, NULL, NULL, Waiting);
+OFSM_DECLARE_GROUP_1(PumpGrp, 3, PumpFsm);
 
-#define PumpRelayPin 5 /*D5*/
-#define VoltageDividerPin A0
+OFSM_DECLARE_FSM(InformerFsm, informerTrasitionTable, 1 + TIMEOUT_INFORMER, NULL, NULL, Waiting);
+OFSM_DECLARE_GROUP_1(InformerGrp, 1, InformerFsm);
+
+OFSM_DECLARE_2(PumpGrp, InformerGrp);
 
 /* Setup */
 void setup() {
 #if OFSM_MCU_BLOCK
     /* set up Serial library at 9600 bps */
     Serial.begin(9600);
+	/* configure pins*/
     pinMode(PumpRelayPin, OUTPUT);
+    digitalWrite(PumpRelayPin, HIGH);
     pinMode(13, OUTPUT);
 #endif
-    OFSM_SETUP();
 
-    digitalWrite(PumpRelayPin, HIGH);
-
-    //blink that it is operational
-    uint8_t on = 1;
-    for(int i = 0; i < 6; i++) {
-      digitalWrite(13, on);
-      on ^= 1;
-      delay(500);
-    }
+	OFSM_SETUP();
 }
 
 void loop() {
@@ -109,7 +131,35 @@ void loop() {
 static uint8_t PumpingPctOfDutyCycle = 50; /* actual measured pumping percent of duty cycle */
 
 /* FSM Handlers */
-void OnSimulation() {
+
+uint8_t informerPinState = 1;
+void OnInformerTimeout() {
+    uint8_t nextState = ofsm_query_fsm_next_state(PumpGrp, PumpFsm);
+    unsigned long sleepPeriod = ofsm_query_fsm_time_left_before_timeout(PumpGrp, PumpFsm);
+
+    if(0 == sleepPeriod) {
+        return;
+    }
+    if(Pumping == nextState) {
+        /*switch informer diode with frequency that is 1/20 of time left before pumping,
+        but don't keep it in the same state longer than InformerBlinkMaxDelay tics and less than InformerBlinkMinDelay*/
+        informerPinState ^= 1;
+        sleepPeriod = (unsigned long)sleepPeriod/20;
+        sleepPeriod = MIN(InformerBlinkMaxDelay, sleepPeriod);
+        sleepPeriod = MAX(InformerBlinkMinDelay, sleepPeriod);
+    } else {
+        /*when pumping, turn diode on*/
+        informerPinState = 1;
+    }
+    fsm_set_transition_delay_deep_sleep(sleepPeriod);
+    ofsm_debug_printf(2, "I: %i for %lu ticks.\n", informerPinState, sleepPeriod);
+#if OFSM_MCU_BLOCK
+    digitalWrite(InformerPin, informerPinState);
+    Serial.print((informerPinState ? "+" : "-"));
+#endif // OFSM_MCU_BLOCK
+}
+
+void OnPumpSimulation() {
 #ifdef OFSM_CONFIG_SIMULATION
     uint8_t pctOfPumpingRange = fsm_get_event_data(); /*in simulation mode we expect percentage (between 0 - 100%) of the allowed pumping range*/
     PumpingPctOfDutyCycle = MinPumpingPctOfDutyCycle + (uint8_t)((long)PumpingPctRange * (long)pctOfPumpingRange / 100);
@@ -119,7 +169,7 @@ void OnSimulation() {
 #endif
 }
 
-void OnTimeout() {
+void OnPumpTimeout() {
 ofsm_debug_printf(1, "Pumping %% of DC = %i\n", PumpingPctOfDutyCycle);
 fsm_queue_group_event(false, PUMPIMP_RATE_CALCULATED, PumpingPctOfDutyCycle);
 #if OFSM_MCU_BLOCK
@@ -131,11 +181,11 @@ fsm_queue_group_event(false, PUMPIMP_RATE_CALCULATED, PumpingPctOfDutyCycle);
     long vdMv = analogReadMv(VoltageDividerPin);
     /*determine Pumping Percent of Duty Cycle*/
     PumpingPctOfDutyCycle = MinPumpingPctOfDutyCycle + (uint8_t)((long)PumpingPctRange * vdMv / vccMv);
-    Serial.print("Pumping "); Serial.print(PumpingPctOfDutyCycle); Serial.println("% of DC");
+    Serial.println(""); Serial.print("Pumping "); Serial.print(PumpingPctOfDutyCycle); Serial.println("% of DC");
 #endif /* OFSM_MCU_BLOCK */
 }
 
-void OnWaiting() {
+void OnPumpWaiting() {
     unsigned long waitSleepPeriod = (100 - PumpingPctOfDutyCycle) * DutyCyclePeriodTicks / 100;
     ofsm_debug_printf(1, "Pump OFF for = %lu ticks\n", waitSleepPeriod);
     fsm_set_transition_delay_deep_sleep(waitSleepPeriod);
@@ -146,7 +196,7 @@ void OnWaiting() {
 #endif /* OFSM_MCU_BLOCK */
 }
 
-void OnPumping() {
+void OnPumpPumping() {
     unsigned long pumpingSleepPeriod = (PumpingPctOfDutyCycle) * DutyCyclePeriodTicks / 100;
     ofsm_debug_printf(1, "Pump ON for = %lu ticks\n", pumpingSleepPeriod);
     fsm_set_transition_delay_deep_sleep(pumpingSleepPeriod);
