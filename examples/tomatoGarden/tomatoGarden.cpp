@@ -1,3 +1,4 @@
+
 /* Tomato garden:
 Problem statement:
 
@@ -20,7 +21,7 @@ Note:
 #else
 #   define DutyCyclePeriodTicks 3*60*1000L  /* full duty cycle 3min (180000 ticks when tick == 1 msc) */
 #   define InformerBlinkMaxDelay 3000L      /* maximum number of ticks for informer diode to remain in on/off state before switching to opposite */
-#   define InformerBlinkMinDelay 50L        /* minimum number of ticks for informer diode to remain in on/off state before switching to opposite */
+#   define InformerBlinkMinDelay 10L        /* minimum number of ticks for informer diode to remain in on/off state before switching to opposite */
 #endif // OFSM_CONFIG_SIMULATION
 
 #define MaxPumpingPctOfDutyCycle 33 /* 33% ~ 1 min if DC = 3min */
@@ -114,13 +115,13 @@ void setup() {
 #if OFSM_MCU_BLOCK
     /* set up Serial library at 9600 bps */
     Serial.begin(9600);
-	/* configure pins*/
+  /* configure pins*/
     pinMode(PumpRelayPin, OUTPUT);
     digitalWrite(PumpRelayPin, HIGH);
-    pinMode(13, OUTPUT);
+    pinMode(InformerPin, OUTPUT);
 #endif
 
-	OFSM_SETUP();
+  OFSM_SETUP();
 }
 
 void loop() {
@@ -134,28 +135,30 @@ static uint8_t PumpingPctOfDutyCycle = 50; /* actual measured pumping percent of
 
 uint8_t informerPinState = 1;
 void OnInformerTimeout() {
-    uint8_t nextState = ofsm_query_fsm_next_state(PumpGrp, PumpFsm);
+    //uint8_t nextState = ofsm_query_fsm_next_state(PumpGrp, PumpFsm);
     unsigned long sleepPeriod = ofsm_query_fsm_time_left_before_timeout(PumpGrp, PumpFsm);
 
     if(0 == sleepPeriod) {
         return;
     }
-    if(Pumping == nextState) {
+    //if(Pumping == nextState) {
         /*switch informer diode with frequency that is 1/20 of time left before pumping,
         but don't keep it in the same state longer than InformerBlinkMaxDelay tics and less than InformerBlinkMinDelay*/
         informerPinState ^= 1;
         sleepPeriod = (unsigned long)sleepPeriod/20;
         sleepPeriod = MIN(InformerBlinkMaxDelay, sleepPeriod);
         sleepPeriod = MAX(InformerBlinkMinDelay, sleepPeriod);
-    } else {
-        /*when pumping, turn diode on*/
-        informerPinState = 1;
-    }
+//    } else {
+//        /*when pumping, turn diode on*/
+//        informerPinState ^= 1;
+//        sleepPeriod = 500;
+//    }
     fsm_set_transition_delay_deep_sleep(sleepPeriod);
     ofsm_debug_printf(2, "I: %i for %lu ticks.\n", informerPinState, sleepPeriod);
 #if OFSM_MCU_BLOCK
     digitalWrite(InformerPin, informerPinState);
     Serial.print((informerPinState ? "+" : "-"));
+    delay(10); /*let serial to flush*/
 #endif // OFSM_MCU_BLOCK
 }
 
